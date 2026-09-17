@@ -2,6 +2,82 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { fresh, actor, rpc, A, B, C } from "./database-harness.mjs";
+test("overlapping observations remain review-only and long stays have no usable duration", async (t) => {
+  const db = await paired();
+  t.after(() => db.close());
+  const { place, device } = await captureSetup(db);
+  const second = await rpc(db, "save_my_place", [
+    {
+      label: "Synthetic overlap",
+      category: "work",
+      latitude: 0,
+      longitude: 0,
+      radius_m: 150,
+    },
+  ]);
+  const session = await rpc(db, "begin_capture", [device.id]);
+  await db.exec("reset role");
+  await db.query(
+    "update tracking_sessions set started_at=now()-interval '2 days' where id=$1",
+    [session.id],
+  );
+  await db.exec("update places set created_at=now()-interval '2 days'");
+  await actor(db, A);
+  const base = Date.now() - 86400000;
+  const e = (seq, pid, kind, seconds) => ({
+    event_id: randomUUID(),
+    platform_event_id: randomUUID(),
+    session_id: session.id,
+    device_id: device.id,
+    place_id: pid,
+    client_seq: seq,
+    kind,
+    observed_at: new Date(base + seconds * 1000).toISOString(),
+    initial_state_possible: false,
+  });
+  await rpc(db, "ingest_geofence_batch", [
+    [
+      e(1, place.id, "EXIT", 0),
+      e(2, second.id, "EXIT", 0),
+      e(3, place.id, "ENTER", 60),
+      e(4, second.id, "ENTER", 70),
+      e(5, place.id, "EXIT", 180),
+      e(6, second.id, "EXIT", 200),
+    ],
+    [],
+  ]);
+  const overlap = (await db.query("select * from visits")).rows;
+  assert.equal(overlap.length, 2);
+  for (const v of overlap) {
+    assert.equal(v.quality_reason, "OVERLAP");
+    assert.equal(v.dwell_seconds, null);
+  }
+  const long = e(7, place.id, "ENTER", 1000);
+  await rpc(db, "ingest_geofence_batch", [
+    [long, e(8, place.id, "EXIT", 16000)],
+    [],
+  ]);
+  assert.equal(
+    (
+      await db.query("select quality_reason from visits where id=$1", [
+        long.event_id,
+      ])
+    ).rows[0].quality_reason,
+    "LONG_VISIT",
+  );
+  await db.exec("reset role");
+  await db.query(
+    "update visits set observed_start_at=now()-interval '92 days',observed_end_at=now()-interval '91 days' where id=$1",
+    [long.event_id],
+  );
+  await actor(db, A);
+  await rpc(db, "cleanup_my_retention");
+  assert.equal(
+    (await db.query("select * from visits where id=$1", [long.event_id])).rows
+      .length,
+    0,
+  );
+});
 async function paired() {
   const db = await fresh();
   await actor(db, A);

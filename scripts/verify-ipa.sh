@@ -5,11 +5,17 @@ ipa="${1:?Usage: verify-ipa.sh path/to.ipa}"
 temp="$(mktemp -d)"
 trap 'rm -rf -- "$temp"' EXIT
 unzip -q "$ipa" -d "$temp"
+apps=("$temp"/Payload/*.app)
+[[ ${#apps[@]} -eq 1 && -s "${apps[0]}/main.jsbundle" ]] || { echo 'Missing standalone app'; exit 1; }
+repo="$(cd "$(dirname "$0")/.." && pwd)"
+# HBC stores adjacent strings without delimiters. Decode their actual boundaries
+# before credential scanning so separate constants cannot become a false key.
+"$repo/node_modules/hermes-compiler/hermesc/osx-bin/hermesc" -b -dump-bytecode "${apps[0]}/main.jsbundle" > "$temp/hermes.txt"
 python3 - "$temp" <<'PY'
 import pathlib,plistlib,sys,re,base64,json
 root=pathlib.Path(sys.argv[1]); apps=list((root/'Payload').glob('*.app'))
 assert len(apps)==1,'Expected one app at Payload root'
-app=apps[0]; p=plistlib.load(open(app/'Info.plist','rb'))
+app=apps[0]; p=plistlib.loads((app/'Info.plist').read_bytes())
 assert p['CFBundleSupportedPlatforms']==['iPhoneOS']
 assert p['CFBundleIdentifier']=='com.turf.privatealpha'
 assert p['CFBundleShortVersionString']=='1.0.0' and p['CFBundleVersion']=='1'
@@ -23,7 +29,7 @@ assert not list(app.rglob('*.appex'))
 assert list((app/'Frameworks').glob('*.framework')),'Missing native frameworks'
 for f in app.rglob('*'):
  if f.is_file() and f.suffix not in ('.car','.png','.jpg'):
-  data=f.read_bytes()
+  data=(root/'hermes.txt').read_bytes() if f.name=='main.jsbundle' else f.read_bytes()
   # Supabase itself includes the literal prefix in validation code. Match a
   # credential-shaped value, not that harmless library string.
   assert not re.search(rb'sb_secret_[A-Za-z0-9_-]{20,}',data),'Forbidden privileged credential'

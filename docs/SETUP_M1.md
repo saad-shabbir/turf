@@ -55,10 +55,11 @@ Run **Build unsigned iOS IPA** manually. Leave `configured_backend=true` for the
 app. Use false only for a shell smoke test; without variables it displays a real
 “Backend not configured” state. Artifact retention is one day.
 
-The first native dependency resolution prints its non-secret Podfile.lock between
-`TURF_POD_LOCK_BEGIN` / `TURF_POD_LOCK_END` in the build log. Review and commit it to
-`native-locks/Podfile.lock`. Subsequent builds enforce `pod install --deployment`.
-The CocoaPods version is pinned; the first native resolution is not called reproducible.
+The first native dependency resolution was captured from run 35183366492 and
+committed to `native-locks/Podfile.lock`. Builds now explicitly use CocoaPods 1.17.0
+and enforce `pod install --deployment`. The fallback for a deliberately removed
+lock prints it between `TURF_POD_LOCK_BEGIN` / `TURF_POD_LOCK_END`; review and commit
+any future regenerated lock before claiming repeatability.
 
 Download and keep `Turf-unsigned.ipa` and its checksum. Follow the original
 `BUILD_AND_SIDELOAD.md` for official SideStore/iloader/LocalDevVPN steps. Each person
@@ -96,6 +97,6 @@ uses their own Apple Account and signs the same unsigned IPA separately.
   network request has a five-second timeout; token refresh may add a separate request.
 - Rejected observations stay visible locally until retention expiry. Last upload is
   server acknowledgment time. No heartbeat or always-running timer is installed.
-- Retention is opportunistic on foreground activity. Deadline deletion is not
+- Retention is opportunistic on foreground activity and ingestion. Deadline deletion is not
   guaranteed without a separately configured administrator maintenance job.
 - No M2–later screens, tables, scoring, commitments, notifications or inference exist.
