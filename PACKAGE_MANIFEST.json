@@ -1,0 +1,80 @@
+{
+  "package": "Turf build handoff",
+  "version": "1.0",
+  "prepared_date": "2026-09-16",
+  "kind": "specifications only; not app source or an IPA",
+  "verification": {
+    "document_integrity": "passed",
+    "native_compile": "not_run",
+    "database_migrations": "not_run",
+    "sidestore_installation": "not_tested",
+    "background_location": "not_tested"
+  },
+  "files": [
+    {
+      "path": ".env.example",
+      "sha256": "f2aaecd9b684a836df3774c50e77833f6f9668bad52caebf327a24fafefed370",
+      "bytes": 732
+    },
+    {
+      "path": ".gitignore",
+      "sha256": "2760b9cd0058fb3d29ae556d70fb29963b13ada0da5314353640aa1e3ba91767",
+      "bytes": 458
+    },
+    {
+      "path": "AGENTS.md",
+      "sha256": "c29ed036652ee66ee31204c19a6436a921779bba5145e9227de20fa5b2e2669e",
+      "bytes": 2906
+    },
+    {
+      "path": "CODEX_MILESTONE_1_PROMPT.txt",
+      "sha256": "dcd8ba2cf4a3f669637473ae14380c5d1a4e86f46660bd20545a442c68e3aac4",
+      "bytes": 4714
+    },
+    {
+      "path": "PRD.md",
+      "sha256": "df129fd3838111187db3aae63685b92cf8e30f57b226edb7bc80249b5845c510",
+      "bytes": 18922
+    },
+    {
+      "path": "README.md",
+      "sha256": "9cb2971967139cd70977ae4753a7e2665a1e4f27d11eec65ea99d17904525fa5",
+      "bytes": 3906
+    },
+    {
+      "path": "TECH_SPEC.md",
+      "sha256": "b403d801bd3cfcaad1fa660606fe95d6d4326338f7c7e7671d183c4f0fcff923",
+      "bytes": 19658
+    },
+    {
+      "path": "docs/BUILD_AND_SIDELOAD.md",
+      "sha256": "ea24efa3e932fdf62ff359e59e5d5862afc80be5ae599830b93acf49c41df771",
+      "bytes": 11100
+    },
+    {
+      "path": "docs/DATABASE_AND_RLS.md",
+      "sha256": "bd844b2f28d25593474df212da6c0357746472ed679a2c81a90f0a7db2d2b7bf",
+      "bytes": 17999
+    },
+    {
+      "path": "docs/DECISIONS.md",
+      "sha256": "bfd689c584e54ac36fa1427b70c9d17f32e0bc50455de346c30b36f2d6135d29",
+      "bytes": 3839
+    },
+    {
+      "path": "docs/FIELD_TEST_CHECKLIST.md",
+      "sha256": "ede1404890e6a69a37fd63aa6adda636dc3f359411cdc029e0327cf233b5a48a",
+      "bytes": 4642
+    },
+    {
+      "path": "docs/MILESTONE_01.md",
+      "sha256": "e3c2d0f4f09867a4f54f983d232ef4d26ab1d1793e836d4ec1bfeee4555bcf9c",
+      "bytes": 6907
+    },
+    {
+      "path": "docs/SOURCES.md",
+      "sha256": "f3b9332344325f1cb07de4a41921cce61284d3e5fdbb4a261c4c7c3cc5884f18",
+      "bytes": 5490
+    }
+  ]
+}

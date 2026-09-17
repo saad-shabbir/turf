@@ -1,0 +1,16 @@
+project_id = "turf-disposable"
+[api]
+enabled = true
+port = 54321
+schemas = ["public", "graphql_public"]
+extra_search_path = ["public", "extensions"]
+[db]
+port = 54322
+major_version = 17
+[auth]
+enabled = true
+site_url = "turf://"
+enable_signup = false
+[auth.email]
+enable_signup = false
+enable_confirmations = true

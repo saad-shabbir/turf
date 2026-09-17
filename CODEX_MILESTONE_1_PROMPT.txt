@@ -1,0 +1,73 @@
+Implement Turf Milestone 1 only in this repository.
+
+Read AGENTS.md, PRD.md, TECH_SPEC.md, docs/DATABASE_AND_RLS.md,
+docs/BUILD_AND_SIDELOAD.md, docs/DECISIONS.md, and docs/MILESTONE_01.md first.
+Treat the PRD's M2-and-later sections as context, not work to implement now.
+
+Turf is a private native iPhone app for two consenting allowlisted users.
+Development happens on Windows; GitHub Actions supplies macOS for compiling;
+each user will sign/install the unsigned IPA through SideStore with their own
+free Apple Account. We are testing automatic visits, not building a PWA or
+Shortcuts workaround. Do not claim this build path works until it is tested.
+
+Create the actual Expo / React Native / TypeScript project and implement:
+1. A standalone app shell that opens without Metro after installation.
+2. Supabase Free configuration, two pre-created email/password accounts,
+   allowlist enforcement, persisted auth, sign-out and privacy controls.
+3. Six-character, expiring, single-use invite pairing with server-side
+   authorization, rate limiting and at most one live pair.
+4. Staged foreground/background location permissions and honest status/error UI.
+5. Add a named place using current location or entered coordinates; categories
+   gym/work/mosque/home/custom; 150m default radius with validated bounds.
+6. Module-scope expo-task-manager geofence handler loaded before router boot,
+   using expo-location and registered immutable place/session identifiers.
+7. Durable encrypted local queue, pause/session/device binding, bounded
+   authenticated synchronization, and idempotent ENTER/EXIT ingestion.
+8. Owner-only raw events and derived incomplete/closed visits in Supabase.
+   Handle initial inside states, duplicates, orphan EXITs, clock errors and
+   offline/out-of-order uploads without inventing attendance or duration.
+9. A private debug screen for events/visits, permissions, registered regions,
+   last callback/upload, queue health and sanitized errors.
+10. Tested M1 database migrations/RLS/RPCs, a manual GitHub Actions macOS
+    workflow, unsigned physical-device Release IPA packaging/verification
+    scripts, and exact Windows/SideStore setup instructions.
+
+Use the technical spec's stable Expo-compatible toolchain, verify current
+compatibility, and lock resolved versions. Generate native iOS with Expo
+prebuild and compile on a standard macOS runner for iphoneos, not Simulator.
+Embed the JS/Hermes bundle and assets. Keep Apple signing credentials out of CI;
+SideStore does signing later. No local Mac is required from the user.
+
+Get the shell/build route in place early, then implement the private backend
+and geofence path. Preserve the supplied docs when scaffolding. Create the
+local project and commits as authorized; if GitHub access is unavailable,
+provide the exact publish/run steps rather than pretending to create a remote
+repository or successful workflow run.
+
+Required security: derive ownership from auth.uid(), validate referenced
+place/session/device ownership, use least-privilege RLS and RPC grants, keep raw
+coordinates/visits private to their owner, and never expose a service-role key.
+Provide a two-user admin bootstrap with placeholders for real Auth IDs. Never
+hardcode real credentials, coordinates, invite codes or private test data.
+Pause must stop local capture before networking. Failed uploads stay queued;
+retries cannot duplicate attendance. Synthetic events must be separate and
+clearly labeled, and must never satisfy the real-device acceptance test.
+
+No paid APIs/services, paid overages, EAS signing, Apple sign-in, APNs,
+notification SDK, public sign-up, Android, map-based tracking workaround,
+Find My integration, score engine, feed, gym/mosque bet logic, badges, streaks,
+unknown-place inference, payments, or later-stage placeholder features now.
+The eventual gym-three-days plus Friday-mosque commitment remains in the PRD
+but is not part of this implementation milestone.
+
+Run dependency, type, lint, unit, database-authorization and packaging checks
+where the environment supports them. Use a disposable database for reset/tests,
+never reset a populated project. If credentials or device access are missing,
+continue with safe local work and report the unrun tests honestly. Do not use
+mock screens or fake data as a substitute for live integration.
+
+Finish with changed files, toolchain versions, executed commands, migration
+order, environment setup, tests marked PASS/FAIL/NOT RUN, actual artifact path
+only if built, and a step-by-step first physical-iPhone test. Distinguish source
+completion, cloud compilation, SideStore signing/installation, and verified
+background behavior. Use docs/FIELD_TEST_CHECKLIST.md. Stop after Milestone 1.

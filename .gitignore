@@ -1,0 +1,34 @@
+# Secrets
+.env
+.env.*
+!.env.example
+*.p12
+*.p8
+*.mobileprovision
+*.mobiledevicepairing
+*.pairing
+*.pem
+*.key
+
+# Generated/build output
+node_modules/
+.expo/
+ios/
+android/
+build/
+dist/
+coverage/
+*.ipa
+*.xcarchive
+*.xcresult
+*.log
+supabase/.temp/
+
+# Local OS/editor files
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Lockfiles and reviewed source belong in Git; do not ignore package-lock.json,
+# Gemfile.lock, or a reviewed native-locks/Podfile.lock added by Codex.
