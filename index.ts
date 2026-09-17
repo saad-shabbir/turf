@@ -1,2 +1,2 @@
-import './src/location/tasks';
-import 'expo-router/entry';
+import "./src/location/tasks";
+import "expo-router/entry";

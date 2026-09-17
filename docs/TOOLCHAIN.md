@@ -15,14 +15,18 @@ Compatibility references checked during implementation:
 - https://docs.expo.dev/versions/v57.0.0/sdk/sqlite/
 - https://github.com/actions/runner-images/blob/main/images/macos/macos-26-Readme.md
 
-Planned native toolchain: standard macos-26, stable installed Xcode >=26.4,
-CocoaPods 1.16.2. Exact runner/Ruby/Xcode versions are printed by the actual build.
-No native Podfile.lock existed before the first Mac resolution; it is not fabricated.
+Observed native toolchain: standard macos-26, Xcode **26.4.1**, iPhoneOS 26.4 SDK,
+deployment target iOS 16.4, CocoaPods **1.17.0**, Ruby 3.4 on the runner.
+The runner selected its newer CocoaPods despite installing 1.16.2; the build script
+now explicitly pins/invokes the observed 1.17.0. The actual resolved Podfile.lock
+from run 35183366492 is committed in native-locks and enforced with --deployment.
 
 Local results: strict typecheck PASS; lint PASS; two native-adapter/validation tests
 PASS; seven disposable PostgreSQL suites PASS; native config introspection PASS.
 The local dependency installation used `--ignore-scripts` because this sandbox
 blocks npm child-process spawning. The cloud workflow runs normal `npm ci`.
 
-Native compile / IPA inspection: pending first cloud run. Installed / field-tested:
-NOT TESTED. SQLCipher wrong-key test on actual native library: NOT RUN.
+Native compile: PASS on run 35183366492 (commit 9d8e7b8). IPA inspection initially
+failed on a harmless Supabase prefix literal; scanner corrected for the next run.
+Installed / field-tested: NOT TESTED. Native SQLCipher wrong-key test: NOT RUN;
+the owner can run the separate synthetic storage diagnostic after installation.

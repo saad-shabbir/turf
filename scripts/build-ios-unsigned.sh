@@ -15,15 +15,15 @@ done
 [[ -n "$selected" ]] || { echo 'No stable installed Xcode >=26.4. Check standard macos-26 image compatibility.'; exit 1; }
 export DEVELOPER_DIR="$selected"
 mkdir -p build
-{ node --version; npm --version; xcodebuild -version; ruby --version; pod --version; } > build/toolchain.txt
+{ node --version; npm --version; xcodebuild -version; ruby --version; pod _1.17.0_ --version; } > build/toolchain.txt
 [[ ! -d ios ]] || { echo 'Refusing to overwrite an existing native tree. Run in a fresh checkout.'; exit 1; }
 npx --no-install expo prebuild --platform ios --clean --no-install
 if [[ -f native-locks/Podfile.lock ]]; then
   cp native-locks/Podfile.lock ios/Podfile.lock
-  (cd ios && pod install --deployment)
+  (cd ios && pod _1.17.0_ install --deployment)
 else
   echo 'FIRST NATIVE RESOLUTION: Podfile.lock must be reviewed and committed before claiming reproducibility.' | tee -a build/toolchain.txt
-  (cd ios && pod install)
+  (cd ios && pod _1.17.0_ install)
   shasum -a 256 ios/Podfile.lock >> build/toolchain.txt
   echo 'TURF_POD_LOCK_BEGIN'
   cat ios/Podfile.lock

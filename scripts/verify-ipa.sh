@@ -6,7 +6,7 @@ temp="$(mktemp -d)"
 trap 'rm -rf -- "$temp"' EXIT
 unzip -q "$ipa" -d "$temp"
 python3 - "$temp" <<'PY'
-import pathlib,plistlib,sys
+import pathlib,plistlib,sys,re,base64,json
 root=pathlib.Path(sys.argv[1]); apps=list((root/'Payload').glob('*.app'))
 assert len(apps)==1,'Expected one app at Payload root'
 app=apps[0]; p=plistlib.load(open(app/'Info.plist','rb'))
@@ -24,7 +24,14 @@ assert list((app/'Frameworks').glob('*.framework')),'Missing native frameworks'
 for f in app.rglob('*'):
  if f.is_file() and f.suffix not in ('.car','.png','.jpg'):
   data=f.read_bytes()
-  assert b'sb_secret_' not in data and b'"role":"service_role"' not in data,'Forbidden privileged credential'
+  # Supabase itself includes the literal prefix in validation code. Match a
+  # credential-shaped value, not that harmless library string.
+  assert not re.search(rb'sb_secret_[A-Za-z0-9_-]{20,}',data),'Forbidden privileged credential'
+  for token in re.findall(rb'eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+',data):
+   payload=token.split(b'.')[1]
+   try: claims=json.loads(base64.urlsafe_b64decode(payload+b'='*((-len(payload))%4)))
+   except (ValueError,UnicodeError): continue
+   assert claims.get('role')!='service_role','Forbidden admin JWT'
 print(app)
 PY
 app=("$temp"/Payload/*.app)

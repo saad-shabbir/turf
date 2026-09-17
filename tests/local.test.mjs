@@ -1,39 +1,199 @@
-import test from 'node:test';
-import assert from 'node:assert/strict';
-import { native } from './native-harness.mjs';
-const local=await import('../src/db/local.ts');
-const {sync}=await import('../src/sync/worker.ts');
-await import('../src/location/tasks.ts');
-const {placeInput}=await import('../src/domain/model.ts');
-test('encrypted-adapter contract, queue retries, pause generation, logout isolation and expired auth',async()=>{
- await local.database();assert.equal(native.keyOptions.keychainAccessible,1);
- await local.authStorage.setItem('session',JSON.stringify({user:{id:'owner-a'},access_token:'synthetic-unit-only'}));
- assert.match(await local.authStorage.getItem('session'),/owner-a/);
- await local.bindOwner('owner-a');
- const active={owner:'owner-a',paused:false,device:'device-a',session:{id:'session-a',device_id:'device-a',generation:1,started_at:new Date().toISOString(),ended_at:null},regions:[{identifier:'region-a',place_id:'place-a',latitude:0,longitude:0,radius:150}]};
- await local.write('state',active);
- native.session={user:{id:'owner-a'},expires_at:Math.floor(Date.now()/1000)+3600};native.networkFails=true;
- const callback=native.tasks.get('TURF_GEOFENCE_V1');
- await callback({data:{eventType:1,region:{identifier:'region-a'}},executionInfo:{eventId:'native-1'}});
- const db=await local.database();let rows=await db.getAllAsync('SELECT * FROM outbox');assert.equal(rows.length,1);assert.equal(rows[0].status,'queued');
- const event=JSON.parse(rows[0].payload);assert.equal(event.initial_state_possible,true);
- assert.equal(native.uploads[0].args.events[0].event_id,event.event_id,'persisted ID precedes network');
- await callback({data:{eventType:1,region:{identifier:'region-a'}},executionInfo:{eventId:'native-1'}});
- assert.equal((await db.getAllAsync('SELECT * FROM outbox')).length,1);
- native.networkFails=false;native.result.accepted=[event.event_id];await sync();
- assert.equal((await db.getFirstAsync('SELECT status FROM outbox')).status,'acknowledged');
- await local.pauseLocal();assert.equal((await local.state()).paused,true);assert.equal((await db.getAllAsync('SELECT * FROM closures')).length,1);
- assert.equal(await local.capture('region-a','delayed','EXIT',new Date().toISOString()),false);
- native.session.expires_at=1;await sync();assert.equal(native.refreshes,1);assert.equal(await local.read('safe_error',null),'AUTH_REQUIRED');
- await local.purge();assert.equal(await local.authStorage.getItem('session'),null);assert.equal((await db.getAllAsync('SELECT * FROM outbox')).length,0);
- await assert.rejects(local.authStorage.setItem('session',JSON.stringify({user:{id:'owner-a'}})),/AUTH_REQUIRED/);
- await local.write('auth_blocked',false);await local.bindOwner('owner-b');
- await assert.rejects(local.bindOwner('owner-a'),/AUTH_REQUIRED/);
- await assert.rejects(local.authStorage.setItem('session',JSON.stringify({user:{id:'owner-a'}})),/AUTH_REQUIRED/);
- native.failStorage=true;await assert.rejects(local.capture('region-a','failure','ENTER',new Date().toISOString()),/STORAGE_ERROR/);native.failStorage=false;
+import test from "node:test";
+import assert from "node:assert/strict";
+import { native } from "./native-harness.mjs";
+const local = await import("../src/db/local.ts");
+const { sync } = await import("../src/sync/worker.ts");
+await import("../src/location/tasks.ts");
+const { placeInput } = await import("../src/domain/model.ts");
+test("encrypted-adapter contract, queue retries, pause generation, logout isolation and expired auth", async () => {
+  await local.database();
+  assert.equal(native.keyOptions.keychainAccessible, 1);
+  await local.authStorage.setItem(
+    "session",
+    JSON.stringify({
+      user: { id: "owner-a" },
+      access_token: "synthetic-unit-only",
+    }),
+  );
+  assert.match(await local.authStorage.getItem("session"), /owner-a/);
+  await local.bindOwner("owner-a");
+  const active = {
+    owner: "owner-a",
+    paused: false,
+    device: "device-a",
+    session: {
+      id: "session-a",
+      device_id: "device-a",
+      generation: 1,
+      started_at: new Date().toISOString(),
+      ended_at: null,
+    },
+    regions: [
+      {
+        identifier: "region-a",
+        place_id: "place-a",
+        latitude: 0,
+        longitude: 0,
+        radius: 150,
+      },
+    ],
+  };
+  await local.write("state", active);
+  native.session = {
+    user: { id: "owner-a" },
+    expires_at: Math.floor(Date.now() / 1000) + 3600,
+  };
+  native.networkFails = true;
+  const callback = native.tasks.get("TURF_GEOFENCE_V1");
+  await callback({
+    data: { eventType: 1, region: { identifier: "region-a" } },
+    executionInfo: { eventId: "native-1" },
+  });
+  const db = await local.database();
+  let rows = await db.getAllAsync("SELECT * FROM outbox");
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].status, "queued");
+  const event = JSON.parse(rows[0].payload);
+  assert.equal(event.initial_state_possible, true);
+  assert.equal(
+    native.uploads[0].args.events[0].event_id,
+    event.event_id,
+    "persisted ID precedes network",
+  );
+  await callback({
+    data: { eventType: 1, region: { identifier: "region-a" } },
+    executionInfo: { eventId: "native-1" },
+  });
+  assert.equal((await db.getAllAsync("SELECT * FROM outbox")).length, 1);
+  native.networkFails = false;
+  native.result.accepted = [event.event_id];
+  await sync();
+  assert.equal(
+    (await db.getFirstAsync("SELECT status FROM outbox")).status,
+    "acknowledged",
+  );
+  await local.pauseLocal();
+  assert.equal((await local.state()).paused, true);
+  assert.equal((await db.getAllAsync("SELECT * FROM closures")).length, 1);
+  assert.equal(
+    await local.capture(
+      "region-a",
+      "delayed",
+      "EXIT",
+      new Date().toISOString(),
+    ),
+    false,
+  );
+  native.session.expires_at = 1;
+  await sync();
+  assert.equal(native.refreshes, 1);
+  assert.equal(await local.read("safe_error", null), "AUTH_REQUIRED");
+  await local.purge();
+  assert.equal(await local.authStorage.getItem("session"), null);
+  assert.equal((await db.getAllAsync("SELECT * FROM outbox")).length, 0);
+  await assert.rejects(
+    local.authStorage.setItem(
+      "session",
+      JSON.stringify({ user: { id: "owner-a" } }),
+    ),
+    /AUTH_REQUIRED/,
+  );
+  await local.write("auth_blocked", false);
+  await local.bindOwner("owner-b");
+  await assert.rejects(local.bindOwner("owner-a"), /AUTH_REQUIRED/);
+  await assert.rejects(
+    local.authStorage.setItem(
+      "session",
+      JSON.stringify({ user: { id: "owner-a" } }),
+    ),
+    /AUTH_REQUIRED/,
+  );
+  native.failStorage = true;
+  await assert.rejects(
+    local.capture("region-a", "failure", "ENTER", new Date().toISOString()),
+    /STORAGE_ERROR/,
+  );
+  native.failStorage = false;
 });
-test('place validation rejects nonfinite coordinates, invalid categories and radii',()=>{
- const valid={label:'Synthetic',category:'gym',latitude:0,longitude:0,radius_m:150};
- assert.ok(placeInput.safeParse(valid).success);
- for(const patch of [{latitude:NaN},{longitude:Infinity},{radius_m:74},{radius_m:401},{category:'inferred'},{label:''}])assert.equal(placeInput.safeParse({...valid,...patch}).success,false);
+test("place validation rejects nonfinite coordinates, invalid categories and radii", () => {
+  const valid = {
+    label: "Synthetic",
+    category: "gym",
+    latitude: 0,
+    longitude: 0,
+    radius_m: 150,
+  };
+  assert.ok(placeInput.safeParse(valid).success);
+  for (const patch of [
+    { latitude: NaN },
+    { longitude: Infinity },
+    { radius_m: 74 },
+    { radius_m: 401 },
+    { category: "inferred" },
+    { label: "" },
+  ])
+    assert.equal(placeInput.safeParse({ ...valid, ...patch }).success, false);
+});
+test("Pause wins while Resume waits on a server session", async () => {
+  const { resume, pause } = await import("../src/location/lifecycle.ts");
+  await local.purge();
+  await local.write("auth_blocked", false);
+  await local.bindOwner("owner-a");
+  native.session = {
+    user: { id: "owner-a" },
+    expires_at: Math.floor(Date.now() / 1000) + 3600,
+  };
+  let release;
+  let signal;
+  const reached = new Promise((resolve) => {
+    signal = resolve;
+  });
+  native.rpcHandler = async (name) => {
+    if (name === "get_my_setup_state") return { pair: { status: "active" } };
+    if (name === "claim_device") return { id: "device-a" };
+    if (name === "begin_capture") {
+      signal();
+      return new Promise((resolve) => {
+        release = () =>
+          resolve({
+            id: "session-race",
+            device_id: "device-a",
+            generation: 2,
+            started_at: new Date().toISOString(),
+            ended_at: null,
+          });
+      });
+    }
+    return { code: "OK" };
+  };
+  const pending = resume();
+  await reached;
+  await pause();
+  release();
+  await assert.rejects(pending, /REGISTRATION_ERROR/);
+  assert.equal((await local.state()).paused, true);
+  assert.equal(native.registered, false);
+  assert.ok(
+    native.uploads.some(
+      (u) => u.name === "end_capture" && u.args.session_id === "session-race",
+    ),
+  );
+  native.rpcHandler = null;
+});
+test("old auth adapter cannot restore or erase a new account after logout", async () => {
+  await local.purge();
+  await local.write("auth_blocked", false);
+  const stale = local.createAuthStorage();
+  await stale.setItem("test", JSON.stringify({ user: { id: "owner-a" } }));
+  await local.purge();
+  await local.write("auth_blocked", false);
+  const current = local.createAuthStorage();
+  await current.setItem("test", JSON.stringify({ user: { id: "owner-b" } }));
+  await assert.rejects(
+    stale.setItem("test", JSON.stringify({ user: { id: "owner-a" } })),
+    /AUTH_REQUIRED/,
+  );
+  await stale.removeItem("test");
+  assert.match(await current.getItem("test"), /owner-b/);
+  await assert.rejects(stale.getItem("test"), /AUTH_REQUIRED/);
 });

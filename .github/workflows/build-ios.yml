@@ -31,7 +31,7 @@ jobs:
       - run: npm run typecheck && npm run lint && npm test && npm run test:db && npm run check:config
       - name: Pin CocoaPods in the runner's user gem directory
         run: |
-          gem install cocoapods -v 1.16.2 --no-document --user-install
+          gem install cocoapods -v 1.17.0 --no-document --user-install
           echo "$(ruby -e 'print Gem.user_dir')/bin" >> "$GITHUB_PATH"
       - run: bash scripts/build-ios-unsigned.sh
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
