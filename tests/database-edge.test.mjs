@@ -2,6 +2,41 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { fresh, actor, rpc, A, B, C } from "./database-harness.mjs";
+test("extreme future clock values are reviewable without duration overflow", async (t) => {
+  const db = await paired();
+  t.after(() => db.close());
+  const { event } = await captureSetup(db);
+  const opening = event(2, "ENTER", 60),
+    closing = {
+      ...event(3, "EXIT", 120),
+      observed_at: "9999-01-01T00:00:00.000Z",
+    };
+  const result = await rpc(db, "ingest_geofence_batch", [
+    [event(1, "EXIT", 0), opening, closing],
+    [],
+  ]);
+  assert.equal(result.accepted.length, 3);
+  const v = (
+    await db.query("select * from visits where id=$1", [opening.event_id])
+  ).rows[0];
+  assert.equal(v.quality_reason, "CLOCK_REVIEW");
+  assert.equal(v.dwell_seconds, null);
+});
+test("clock reversal hidden in a duplicate ENTER still forces review", async (t) => {
+  const db = await paired();
+  t.after(() => db.close());
+  const { event } = await captureSetup(db);
+  const start = event(5, "ENTER", 60);
+  await rpc(db, "ingest_geofence_batch", [
+    [event(1, "EXIT", 0), start, event(2, "ENTER", 70), event(6, "EXIT", 120)],
+    [],
+  ]);
+  const visit = (
+    await db.query("select * from visits where id=$1", [start.event_id])
+  ).rows[0];
+  assert.equal(visit.quality_reason, "CLOCK_REVIEW");
+  assert.equal(visit.dwell_seconds, null);
+});
 test("overlapping observations remain review-only and long stays have no usable duration", async (t) => {
   const db = await paired();
   t.after(() => db.close());

@@ -38,10 +38,12 @@ use SETUP_M1.md for current implementation setup.
 | TypeScript strict check | PASS locally and on Mac |
 | ESLint | PASS locally and on Mac |
 | Native-adapter unit tests | PASS: four tests including queue retry, auth generation and pause race |
-| Disposable PostgreSQL migrations/RLS/RPC | PASS: seven suites, actual SQL roles and pgcrypto in PGlite |
+| Disposable PostgreSQL migrations/RLS/RPC | PASS: ten suites, actual SQL roles and pgcrypto in PGlite |
 | Generated iOS configuration | PASS: location-only mode, SQLCipher, no restricted entitlements |
 | Native compilation | PASS: Xcode 26.4.1 device Release at commit 9d8e7b8 |
-| Final locked native build and artifact inspection | Pending run 35183791189 |
+| Packaging validator fixtures | PASS: four Python tests, plus reproduced Hermes string-boundary false positive |
+| Final locked native build and artifact inspection | PASS: [run 35184213560](https://github.com/saad-shabbir/turf/actions/runs/35184213560), commit 0725676 |
+| Download integrity and device platform | PASS: matching SHA-256 and independent Mach-O iOS platform inspection |
 | Hosted Supabase migration/bootstrap | NOT APPLIED: no project configuration supplied |
 | Full Supabase/GoTrue/PostgREST and pgTAP | NOT RUN: no Docker/Supabase local stack |
 | Concurrent independent DB connections | NOT RUN: PGlite tests serialize SQL; lock/index behavior is exercised sequentially |
@@ -53,14 +55,32 @@ use SETUP_M1.md for current implementation setup.
 PGlite Auth identities are disposable fixtures. Native unit tests substitute adapters,
 so they do not establish encryption, OS execution, or real location delivery.
 The first Mac run failed lock validation; clean cross-platform lock generation and
-pinning npm fixed that. The second compiled successfully but the secret scanner
-misidentified a library prefix; its credential-shaped matching is now corrected.
+pinning npm fixed that. The next two compiled successfully but the secret scanner
+misidentified a library prefix and then adjacent Hermes strings. This was reproduced
+with a harmless compiled fixture. Inspection now decodes the Hermes string table
+before matching credential-shaped values and retains admin-JWT rejection.
+
+The final native app source is the same as commit 05ab059. Later commits add
+artifact checks, SQL clock-edge hardening, tests and documentation; no later
+milestone or changed native app behavior is included.
 
 ## Toolchain and commands
 
 Node 24.19.0, npm 11.6.1, Expo 57.0.23, RN 0.86.3, React 19.2.3,
 Xcode 26.4.1 / iPhoneOS 26.4 SDK, iOS minimum 16.4, CocoaPods 1.17.0.
+Ruby 3.4.10 (arm64-darwin25) on the successful runner.
 See TOOLCHAIN.md and committed locks for exact resolutions.
+
+## Actual artifact
+
+`outputs/ios/Turf-unsigned.ipa` in the Codex task workspace: 12,035,971 bytes.
+SHA-256: `3632d63e33c3b20afaa9b06903a0270b83288808aab19dae51f8e6950ed1f53c`.
+The checksum and actual toolchain summary are saved beside the IPA.
+The private GitHub run also holds the artifact for one day.
+
+This is a real unsigned physical-device standalone Release, built without backend
+variables. It is a shell smoke-test artifact, not a configured two-user deployment.
+Signing/installation and actual background operation remain unverified.
 
 Commands executed include `expo install`, clean `npm install --package-lock-only`,
 local `tsc --noEmit`, `eslint .`, `node --test --test-isolation=none` for local and DB

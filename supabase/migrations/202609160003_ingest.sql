@@ -1,16 +1,20 @@
 create function private.replay(sid uuid,pid uuid) returns void language plpgsql security definer set search_path='' as $$
 declare s public.tracking_sessions; p public.places; e public.geofence_events; opening public.geofence_events;
- outside_seen boolean:=false; known boolean; bad boolean; last_seq bigint:=0; seconds integer; reason text;
+ outside_seen boolean:=false; known boolean; bad boolean; stream_bad boolean; last_seq bigint:=0; seconds bigint; reason text;
 begin
  select * into s from public.tracking_sessions where id=sid;
  select * into p from public.places where id=pid;
+ select exists(select 1 from (
+   select client_seq,lag(client_seq) over(order by observed_at,client_seq,id) previous_seq
+   from public.geofence_events where session_id=sid and place_id=pid and validation_status<>'rejected'
+ ) ordered where client_seq<=previous_seq) into stream_bad;
  -- Retention cleanup must not replay a stream after its opening evidence expired.
  delete from public.visits where session_id=sid and place_id=pid and opening_event_id is not null;
  for e in select * from public.geofence_events where session_id=sid and place_id=pid order by observed_at,client_seq,id loop
  if e.validation_status='rejected' then continue; end if;
  if e.kind='ENTER' and opening.id is null then
  opening:=e; known:=outside_seen and not e.initial_state_possible;
- bad:=e.validation_status<>'valid' or e.client_seq<=last_seq;
+ bad:=stream_bad or e.validation_status<>'valid' or e.client_seq<=last_seq;
  elsif e.kind='EXIT' then
  if opening.id is not null then
  seconds:=floor(extract(epoch from (e.observed_at-opening.observed_at)));

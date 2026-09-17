@@ -21,12 +21,15 @@ The runner selected its newer CocoaPods despite installing 1.16.2; the build scr
 now explicitly pins/invokes the observed 1.17.0. The actual resolved Podfile.lock
 from run 35183366492 is committed in native-locks and enforced with --deployment.
 
-Local results: strict typecheck PASS; lint PASS; two native-adapter/validation tests
-PASS; seven disposable PostgreSQL suites PASS; native config introspection PASS.
+Local results: strict typecheck PASS; lint PASS; four native-adapter/validation tests
+PASS; ten disposable PostgreSQL suites PASS; native config introspection PASS;
+four synthetic packaging-inspector tests PASS.
 The local dependency installation used `--ignore-scripts` because this sandbox
 blocks npm child-process spawning. The cloud workflow runs normal `npm ci`.
 
-Native compile: PASS on run 35183366492 (commit 9d8e7b8). IPA inspection initially
-failed on a harmless Supabase prefix literal; scanner corrected for the next run.
+Native compile and IPA inspection: **PASS** on run **35184213560** (commit 0725676),
+with committed Podfile.lock and explicit CocoaPods 1.17.0. Ruby **3.4.10**.
+Earlier inspection failures were caused by a harmless Supabase prefix and adjacent
+Hermes strings; the final inspector decodes string boundaries before scanning.
 Installed / field-tested: NOT TESTED. Native SQLCipher wrong-key test: NOT RUN;
 the owner can run the separate synthetic storage diagnostic after installation.
