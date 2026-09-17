@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import type { DatabaseRows } from '../db/database.generated';
 export const category = z.enum(['gym', 'work', 'mosque', 'home', 'custom']);
 export const placeInput = z.object({
   place_key: z.string().uuid().optional(), label: z.string().trim().min(1).max(80), category,
@@ -6,8 +7,8 @@ export const placeInput = z.object({
   radius_m: z.number().int().min(75).max(400),
 }).strict();
 export type PlaceInput = z.infer<typeof placeInput>;
-export type Place = PlaceInput & { id: string; place_key: string; revision: number; active: boolean; user_id: string };
-export type Capture = { id: string; device_id: string; generation: number; started_at: string; ended_at: string | null };
+export type Place = PlaceInput & DatabaseRows['places'];
+export type Capture = Pick<DatabaseRows['tracking_sessions'],'id'|'device_id'|'generation'|'started_at'|'ended_at'>;
 export type Observation = { event_id: string; platform_event_id: string; session_id: string; device_id: string; place_id: string; client_seq: number; kind: 'ENTER' | 'EXIT'; observed_at: string; initial_state_possible: boolean };
 export type Closure = { session_id: string; observed_end_at: string; reason: 'paused' | 'logout' | 'place_change' | 'unpaired' | 'deleted_data' };
 export type Registry = { identifier: string; place_id: string; latitude: number; longitude: number; radius: number };

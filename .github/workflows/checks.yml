@@ -14,6 +14,7 @@ jobs:
         with:
           node-version: '24.19.0'
           cache: npm
+      - run: npm install --global npm@11.6.1
       - run: npm ci
       - run: npm run typecheck && npm run lint && npm test && npm run test:db && npm run check:config
       - run: bash -n scripts/build-ios-unsigned.sh scripts/verify-ipa.sh
