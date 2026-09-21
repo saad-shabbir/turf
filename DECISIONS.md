@@ -14,6 +14,9 @@
 12. Existing Auth accounts complete ClassStreak setup after sign-in. Email confirmation is a real pending state; keep drafts until a session exists.
 # Friends and contact details
 
+- The studio QR uses an explicit share token pointing to the canonical venue, so it never publishes a private place row or owner ID. The token's public preview contains only the shared studio pin and lets onboarding pre-save it. `classstreak.app` is not claimed as deployed; typed codes and in-app QR work with the current free build.
+- Google Places confirmed Club Pilates at 7460 W Lake Mead Blvd E1, Las Vegas, and Core Pilates at 3592 Old Atlanta Rd #101, Suwanee on 2026-09-20. Demo pins use those results and remain editable; no placeholder coordinates are monitored.
+
 - Personal reminder schedules cover the next 28 days and refresh on app activity and synchronized visits, staying below iOS's pending-notification limit. Scheduled copy uses generic prompts because iOS cannot query live friend counts while a local notification is delivered. Recap details are computed when opened; no stale friend claim is embedded.
 - Offline qualified callbacks keep encrypted evidence and show “saved on this phone”; an actual counted-session notification waits for the server decision. In-app friend messages use an inbox, own-account Realtime revisions and a next-open banner, with no APNs entitlement.
 

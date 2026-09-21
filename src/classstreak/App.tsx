@@ -9,7 +9,7 @@ import * as Linking from "expo-linking";
 import { backend, configured } from "../auth/client";
 import { purge, read, write } from "../db/local";
 import { call, finishOnboarding, getSnapshot, resetEmail, saveSettings, signIn, signUp } from "./api";
-import { newDraft, safeMessage, type Draft, type Snapshot } from "./model";
+import { newDraft, safeMessage, type Draft, type Snapshot,type Place } from "./model";
 import { Button, Card, Input, Logo, Screen, Theme, Txt } from "./ui";
 import { Onboarding } from "./Onboarding";
 import { PlacesPicker } from "./PlacesPicker";
@@ -20,10 +20,12 @@ import {announceMilestones,clearNotifications,enableNotifications,notificationRe
 import type {Action} from "./SessionScreens";
 import {Friends,AddFriends} from "./Friends";
 import {Scanner} from "./Scanner";
-import {clipboardInvite,copyInvite,matchContacts,shareInvite,subscribeSocial} from "./social";
+import {clipboardSetup,copyInvite,matchContacts,shareInvite,subscribeSocial} from "./social";
 import * as Haptics from "expo-haptics";
 import {Post,Celebration} from "./Post";
 import {syncPhotos} from "./photos";
+import {Studios,StudioQR} from "./Studios";
+import {demoPlaces} from "./demo-places";
 
 export default function ClassStreakApp() {
   const [fontsLoaded] = useFonts({ Fraunces_600SemiBold, Manrope_400Regular, Manrope_600SemiBold, Manrope_700Bold, Manrope_800ExtraBold });
@@ -40,6 +42,7 @@ export default function ClassStreakApp() {
   const [observedNow,setObservedNow]=useState(()=>Date.now());
   const [editingPlace,setEditingPlace]=useState<string|null>(null);
   const [authId,setAuthId]=useState<string|null>(null);const [contactMatches,setContactMatches]=useState<{id:string;first_name:string}[]>([]);
+  const [studioQR,setStudioQR]=useState<{name:string;code:string}|null>(null);
   const change = (patch: Partial<Draft>) => setDraft(previous => { const value = { ...previous, ...patch }; void write("cs:draft", value).catch(() => {}); return value; });
   const refresh = useCallback(async () => {
     setObservedNow(Date.now());
@@ -62,7 +65,7 @@ export default function ClassStreakApp() {
   }, []);
   const run = (action: () => Promise<void>) => { setBusy(true); setMessage(""); void action().catch(e => setMessage(safeMessage(e))).finally(() => setBusy(false)); };
   useEffect(() => {
-    void (async () => { const saved=await read("cs:draft", newDraft());if(!await read("cs:clipboard_checked",false)){const code=await clipboardInvite().catch(()=>undefined);if(code)saved.invite_code=code;await write("cs:clipboard_checked",true);await write("cs:draft",saved);}setDraft(saved); await refresh(); })().catch(e => setMessage(safeMessage(e))).finally(() => setReady(true));
+    void (async () => { const saved=await read("cs:draft", newDraft());if(!await read("cs:clipboard_checked",false)){const codes=await clipboardSetup().catch(()=>undefined);if(codes?.invite_code)saved.invite_code=codes.invite_code;if(codes?.studio_code&&configured){const {data}=await backend().rpc("cs_studio_preview",{code:codes.studio_code});if(data){saved.place={...data,id:""};await write("cs:pending_studio",true);}}await write("cs:clipboard_checked",true);await write("cs:draft",saved);}setDraft(previous=>({...saved,...(previous.invite_code?{invite_code:previous.invite_code}:{}),...(previous.place?{place:previous.place}:{})})); await refresh(); })().catch(e => setMessage(safeMessage(e))).finally(() => setReady(true));
     const foreground=async()=>{await reconcileTracking().catch(()=>{});await syncPhotos().catch(()=>{});await refresh();};
     const app = AppState.addEventListener("change", state => { if (state === "active") void foreground().catch(() => {}); });
     onSessionsCreated(async ids=>{await refresh();if(AppState.currentState==="active"&&ids[0])setPane("session:"+ids[0]);});
@@ -73,6 +76,11 @@ export default function ClassStreakApp() {
         await backend().auth.setSession({ access_token: hash.get("access_token")!, refresh_token: hash.get("refresh_token")! }); setMode("reset");
       } else if (code && /account/.test(url)) { const { error } = await backend().auth.exchangeCodeForSession(code); if (error) throw error; setMode(parsed.searchParams.get("recovery")==="1"?"reset":"onboarding");await refresh(); }
       else if (/\/j\//.test(parsed.pathname)||parsed.hostname==="j") change({ invite_code: (parsed.hostname==="j"?parsed.pathname.slice(1):parsed.pathname.split("/j/")[1])?.replace(/[^A-Z0-9]/gi, "").slice(0, 12) ?? "" });
+      else if (/\/s\//.test(parsed.pathname)||parsed.hostname==="s"){
+        const studioCode=parsed.hostname==="s"?parsed.pathname.slice(1):parsed.pathname.split("/s/")[1];const {data,error}=await backend().rpc("cs_studio_preview",{code:studioCode});if(error||!data)throw new Error("That studio link is unavailable.");
+        const place={...data,id:undefined} as Place;const {data:auth}=await backend().auth.getSession();
+        if(auth.session){await saveSettings("place",place);await refresh();setPane("studios");}else{change({place});await write("cs:pending_studio",true);}
+      }
     };
     void Linking.getInitialURL().then(url => url ? handle(url) : undefined).catch(() => {});
     const links = Linking.addEventListener("url", e => { void handle(e.url).catch(e => setMessage(safeMessage(e))); });
@@ -85,6 +93,7 @@ export default function ClassStreakApp() {
     const value = await finishOnboarding(draft);
     setSnapshot(value); await write("cs:draft", newDraft());
     if(draft.invite_code)await call<Snapshot>("cs_social",{action:"invite",payload:{code:draft.invite_code}}).then(setSnapshot).catch(e=>setMessage(safeMessage(e)));
+    if(await read("cs:pending_studio",false)){setPane("studios");await write("cs:pending_studio",false);}
     if(draft.location_consent&&value.places.some(p=>p.enabled))await startTracking().catch(()=>setMessage("Your setup is saved. Automatic tracking can be enabled in Account when location is allowed."));
   };
   const signOut=async()=>{await stopTracking();await clearNotifications();await backend().auth.signOut({scope:"local"});await purge();setSnapshot(null);setSignedIn(false);setDraft(newDraft());setPane("home");setMode("signin");};
@@ -109,7 +118,7 @@ export default function ClassStreakApp() {
         await saveSettings("profile",{tracking_consent:true});const fg=await Location.requestForegroundPermissionsAsync();if(fg.granted)await Location.requestBackgroundPermissionsAsync();await startTracking();await refresh();
       }else if(name==="stop_tracking"){await stopTracking();await refresh();}
       else if(name==="rollup"){await call("cs_rollup",{as_of:new Date(Date.now()+await read("cs:clock_offset",0)).toISOString()});await refresh();setMessage("Your weekly totals have been recalculated.");}
-      else if(name==="seed_demo"||name==="remove_demo"){await call("cs_seed_demo",{remove_demo:name==="remove_demo"});await refresh();setMessage(name==="seed_demo"?"Demo sessions and three demo friends loaded.":"Demo data removed.");}
+      else if(name==="seed_demo"||name==="remove_demo"){await call("cs_seed_demo",{remove_demo:name==="remove_demo",demo_places:name==="seed_demo"?demoPlaces:[]});await refresh();setMessage(name==="seed_demo"?"Demo sessions and three demo friends loaded.":"Demo data removed.");}
       else if(name==="test_reminder")await testReminder();
       else if(name==="enable_notifications"){setMessage(await enableNotifications()?"Phone reminders enabled.":"You can enable notifications in iPhone Settings.");await refresh();}
       else if(name==="timezone"){const tz=Intl.DateTimeFormat().resolvedOptions().timeZone;await saveSettings("timezone",{tz});setMessage(`Timezone ${tz} applies from next Monday.`);}
@@ -119,10 +128,12 @@ export default function ClassStreakApp() {
       else if(name==="contacts"){if(!snapshot?.profile.phone_set)throw new Error("Add your phone number in Account first, or use a link, QR or friend code.");const matches=await matchContacts();setContactMatches(matches);if(!matches.length)setMessage("No matches yet. You can still share your invite.");}
       else if(name==="share_invite"&&snapshot)await shareInvite(snapshot.profile.invite_code);
       else if(name==="copy_invite"&&snapshot){await copyInvite(snapshot.profile.invite_code);setMessage("Friend code copied.");}
+      else if(name==="studio_qr"&&snapshot){const code=await call<string>("cs_share_studio",{place_id:payload.id});setStudioQR({name:snapshot.places.find(p=>p.id===payload.id)?.name??"Your studio",code});setPane("studio-qr");}
+      else if(name==="studio_link"){const {data,error}=await backend().rpc("cs_studio_preview",{code:payload.code});if(error||!data)throw new Error("That studio link is unavailable.");setSnapshot(await saveSettings("place",{...data,id:undefined}));setPane("studios");}
       else throw new Error("This action is not connected yet.");
     });
   };
-  const extra=(target:string)=>(target==="recap"||target.startsWith("milestone:"))&&snapshot?<Celebration snapshot={snapshot} action={action} now={new Date(observedNow+clockOffset)} milestone={target.startsWith("milestone:")?Number(target.slice(10)):undefined}/>:target==="friends"&&snapshot?<Friends snapshot={snapshot} action={action} now={new Date(observedNow+clockOffset)}/>:target==="add-friends"&&snapshot?<AddFriends snapshot={snapshot} action={action} matches={contactMatches}/>:target==="scan"?<Scanner action={action}/>:target==="debug"&&snapshot?<Debug snapshot={snapshot} action={action} refresh={refresh}/>:target==="add-place"?<PlacesPicker value={snapshot?.places.find(p=>p.id===editingPlace)??null} onSelect={place=>{action("settings",{kind:"place",payload:{...place,id:place.id||undefined}});setEditingPlace(null);setPane("places");}} onError={e=>setMessage(safeMessage(e))}/>:target==="privacy"?<><Txt serif size={32}>Terms and privacy</Txt><Txt>ClassStreak records visits to the places you save. Location observations and exact visit times are private to your account. Accepted friends see session summaries, photos and comments from the day you became friends.</Txt><Txt>Place names are shared only when both sharing switches are on. Studio boards show first name and last initial when you opt in. You can pause tracking, remove a session, unfriend someone or delete your account.</Txt><Txt>Automatic detection can miss a visit or estimate a departure. A recorded visit does not prove exercise or attendance at a class. Demo and simulated records are labeled.</Txt><Txt>Your account data is stored by Supabase. Google receives studio searches. Photos you export through another app are subject to that app’s audience and policies.</Txt></>:null;
+  const extra=(target:string)=>target==="studios"&&snapshot?<Studios snapshot={snapshot} action={action}/>:target==="studio-qr"&&studioQR?<StudioQR {...studioQR} action={action}/>:(target==="recap"||target.startsWith("milestone:"))&&snapshot?<Celebration snapshot={snapshot} action={action} now={new Date(observedNow+clockOffset)} milestone={target.startsWith("milestone:")?Number(target.slice(10)):undefined}/>:target==="friends"&&snapshot?<Friends snapshot={snapshot} action={action} now={new Date(observedNow+clockOffset)}/>:target==="add-friends"&&snapshot?<AddFriends snapshot={snapshot} action={action} matches={contactMatches}/>:target==="scan"?<Scanner action={action}/>:target==="debug"&&snapshot?<Debug snapshot={snapshot} action={action} refresh={refresh}/>:target==="add-place"?<PlacesPicker value={snapshot?.places.find(p=>p.id===editingPlace)??null} onSelect={place=>{action("settings",{kind:"place",payload:{...place,id:place.id||undefined}});setEditingPlace(null);setPane("places");}} onError={e=>setMessage(safeMessage(e))}/>:target==="privacy"?<><Txt serif size={32}>Terms and privacy</Txt><Txt>ClassStreak records visits to the places you save. Location observations and exact visit times are private to your account. Accepted friends see session summaries, photos and comments from the day you became friends.</Txt><Txt>Place names are shared only when both sharing switches are on. Studio boards show first name and last initial when you opt in. You can pause tracking, remove a session, unfriend someone or delete your account.</Txt><Txt>Automatic detection can miss a visit or estimate a departure. A recorded visit does not prove exercise or attendance at a class. Demo and simulated records are labeled.</Txt><Txt>Your account data is stored by Supabase. Google receives studio searches. Photos you export through another app are subject to that app’s audience and policies.</Txt></>:null;
   const accountForm = <View style={{ gap: 12 }}>
     {signedIn ? <Button title="Save my setup" disabled={busy} onPress={() => run(complete)} /> : <>
       <Input label="Email" value={email} onChange={setEmail} keyboard="email-address" />

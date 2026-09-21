@@ -123,7 +123,7 @@ declare v uuid; result uuid; label text:=trim(p->>'name'); latitude double preci
  perform 1 from classstreak.users where id=u for update;
  if not exists(select 1 from classstreak.activities where key=p->>'activity_key') then raise exception 'INVALID_ACTIVITY'; end if;
  if label is null or length(label) not between 1 and 120 or latitude not between -90 and 90 or longitude not between -180 and 180 then raise exception 'INVALID_PLACE'; end if;
- if p->>'id' is not null then select id into result from classstreak.places where id=(p->>'id')::uuid and user_id=u; end if;
+ if nullif(p->>'id','') is not null then select id into result from classstreak.places where id=(p->>'id')::uuid and user_id=u; end if;
  if result is null and (select count(*) from classstreak.places where user_id=u and enabled)>=12 then raise exception 'PLACE_LIMIT'; end if;
  if gid is not null then select id into v from classstreak.venues where google_place_id=gid;
  else select id into v from classstreak.venues where lower(name)=lower(label) and sqrt(power((lat-latitude)*111320,2)+power((lng-longitude)*111320*cos(radians(latitude)),2))<=150 limit 1; end if;
