@@ -1,4 +1,4 @@
-import type {Snapshot} from "./model.ts";
+import {activity,type Snapshot} from "./model.ts";
 import {dayKey,mondayKey,shiftDay} from "./engine.ts";
 export type Reminder={id:string;at:Date;title:string;body:string;pane:string};
 export function localTime(day:string,hour:number,minute:number,zone:string){
@@ -17,7 +17,7 @@ export function reminderPlan(s:Snapshot,now:Date):Reminder[]{
  for(let offset=0;offset<28;offset++){
   const day=shiftDay(today,offset);const weekday=(new Date(day+"T12:00:00Z").getUTCDay()+6)%7;const usual=s.usual_days.find(d=>d.weekday===weekday);
   const logged=s.sessions.some(x=>!x.removed_at&&x.counted&&x.day_key===day);
-  if(usual&&prefs.usual!==false&&!logged){const hour=usual.time_of_day==="morning"?8:usual.time_of_day==="midday"?12:17;const label=new Intl.DateTimeFormat("en-US",{weekday:"long",timeZone:"UTC"}).format(new Date(day+"T12:00:00Z"));result.push({id:"usual:"+day,at:localTime(day,hour,0,zone),title:`It’s ${label}. Time for class?`,body:"Your usual day is here. Go to class. It counts itself.",pane:"home"});}
+  if(usual&&prefs.usual!==false&&!logged){const hour=usual.time_of_day==="morning"?8:usual.time_of_day==="midday"?12:17;const label=new Intl.DateTimeFormat("en-US",{weekday:"long",timeZone:"UTC"}).format(new Date(day+"T12:00:00Z"));result.push({id:"usual:"+day,at:localTime(day,hour,0,zone),title:`It’s ${label}. ${activity(s.goals.find(g=>g.goal>0)?.activity_key??"reformer").short}${usual.time_of_day==="evening"?" at 6?":" today?"}`,body:offset===0&&s.friends.some(f=>f.status==="accepted"&&f.days.includes(weekday))?`${s.friends.find(f=>f.status==="accepted"&&f.days.includes(weekday))!.first_name} already went today. Your next session counts.`:"Your usual day is here. Go to class. It counts itself.",pane:"home"});}
   if(weekday===5&&prefs.risk!==false&&(day>=shiftDay(week,7)||count<currentGoal))result.push({id:"risk:"+day,at:localTime(day,10,0,zone),title:"Two days left in your week.",body:"Open ClassStreak to see your progress.",pane:"home"});
   if(weekday===6&&prefs.recap!==false)result.push({id:"recap:"+day,at:localTime(day,18,0,zone),title:"Your week, counted.",body:"Your weekly recap is ready in ClassStreak.",pane:"recap"});
  }

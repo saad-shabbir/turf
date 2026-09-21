@@ -10,7 +10,7 @@ import { backend, configured } from "../auth/client";
 import { purge, read, write } from "../db/local";
 import { call, finishOnboarding, getSnapshot, resetEmail, saveSettings, signIn, signUp } from "./api";
 import { newDraft, safeMessage, type Draft, type Snapshot,type Place } from "./model";
-import { Button, Card, Input, Logo, Screen, Theme, Txt } from "./ui";
+import { Button, Card, Input, Logo, Screen, Theme, themes, Txt } from "./ui";
 import { Onboarding } from "./Onboarding";
 import { PlacesPicker } from "./PlacesPicker";
 import {Product} from "./Product";
@@ -173,7 +173,7 @@ export default function ClassStreakApp() {
     <Pressable onPress={() => setMode("forgot")} style={{ padding: 6 }}><Txt muted size={12} style={{ textAlign: "center" }}>Forgot password</Txt></Pressable>
     <Pressable onPress={()=>setPane("privacy")}><Txt size={11} muted style={{ textAlign: "center" }}>By continuing you agree to the Terms and Privacy Policy.</Txt></Pressable>
   </View>;
-  return <Theme name={snapshot?.profile.theme ?? draft.theme}><SafeAreaView style={{ flex: 1 }} edges={["top", "bottom"]}>
+  return <Theme name={snapshot?.profile.theme ?? draft.theme}><SafeAreaView style={{ flex: 1,backgroundColor:themes[snapshot?.profile.theme??draft.theme].paper }} edges={["top", "bottom"]}>
     {!!message && <Card style={{ borderRadius: 0, padding: 10 }}><Pressable accessibilityLabel="Dismiss message" onPress={() => setMessage("")}><Txt size={12}>{message}</Txt></Pressable></Card>}
     {!ready || !fontsLoaded ? <Screen><Logo /><Txt muted>Opening your streak…</Txt></Screen> : pane==="privacy"&&!snapshot?<Screen>{extra("privacy")}<Button title="Back" onPress={()=>setPane("home")}/></Screen>:mode !== "onboarding" ? <Screen><Logo /><Txt serif size={35}>{mode === "signin" ? "Welcome back." : mode === "forgot" ? "Forgot password?" : "Choose a new password."}</Txt>
       {mode !== "reset" && <Input label="Email" value={email} onChange={setEmail} keyboard="email-address" />}

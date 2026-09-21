@@ -6,8 +6,8 @@ import { dayKey } from "./engine";
 import {localTime} from './reminder-plan';
 export type Action = (name:string,payload?:Record<string,unknown>)=>void;
 export function Sticker({session,count,goal,streak,frosted=false}: {session:Session;count:number;goal:number;streak:number;frosted?:boolean}){
- const t=useTheme();return <View style={{padding:20,borderRadius:24,backgroundColor:frosted?"#3B1D2E99":t.ink,borderWidth:frosted?1:0,borderColor:"#ffffff44",alignItems:"center",gap:10}}>
-  <Txt size={11} bold style={{color:"#ffffffcc"}}>Workout type</Txt><Txt size={27} bold style={{color:"#fff",textAlign:"center"}}>{session.workout_label}</Txt>
+ const t=useTheme();return <View style={{padding:20,borderRadius:24,backgroundColor:frosted?"#3B1D2E6B":t.ink,borderWidth:frosted?1:0,borderColor:"#ffffff44",alignItems:"center",gap:10}}>
+  <Txt size={11} bold style={{color:"#ffffffcc"}}>Workout type</Txt><Txt size={30} bold style={{color:"#fff",textAlign:"center",fontFamily:"Manrope_800ExtraBold"}}>{session.workout_label}</Txt>
   <Row style={{width:"100%",justifyContent:"space-between",marginVertical:4}}>{[["Time",durationLabel(session.duration_sec,true)],["This week",`${count}/${goal}`],["Streak",`${streak} wk`]].map(([label,value])=><View key={label} style={{alignItems:"center",gap:2}}><Txt size={11} style={{color:"#ffffffcc"}}>{label}</Txt><Txt bold size={21} style={{color:"#fff"}}>{value}</Txt></View>)}</Row><Logo white size={21}/>
  </View>;
 }
@@ -15,10 +15,11 @@ export function SessionDetails({session:s,snapshot,stats,action}:{session:Sessio
  const [minutes,setMinutes]=useState(String(Math.round(s.duration_sec/60)));const [custom,setCustom]=useState(s.workout_label);const [editing,setEditing]=useState(false);
  const choices=s.activity_key==="gym"?["Legs","Upper","Cardio","Full body","Other"]:['reformer','mat','hot'].includes(s.activity_key)?["Reformer","Mat","Hot Pilates","Other"]:[activity(s.activity_key).label,'Other'];
  return <View style={{gap:14}}><Txt muted size={12}>{s.place_name??snapshot.places.find(p=>p.id===s.place_id)?.name??"Your session"}</Txt><Txt serif size={33}>You went to class.</Txt><Sticker session={s} {...stats}/>
+  {s.verified&&<Row><Icon name="check" size={14}/><Txt muted size={12}>Verified with Apple Health</Txt></Row>}
   {s.source!=="geofence"&&<Chip title={s.source==="manual"?"Manual · unverified":s.source==="seed"?"Demo session":"Simulated session"} selected/>}
   {s.estimated&&<Card><Txt bold size={13}>We guessed when you left</Txt><Txt muted size={12}>No departure arrived. This is a four-hour estimate. Correct the duration below.</Txt><Input label="Duration in minutes" value={minutes} onChange={setMinutes} keyboard="numeric"/></Card>}
   <Row style={{alignItems:"flex-start"}}><Txt bold size={12} style={{width:77}}>Workout type</Txt><Txt muted size={11} style={{flex:1}}>We guessed from the studio. Fix it if we are wrong.</Txt></Row>
-  <Row style={{flexWrap:"wrap",gap:6}}>{choices.map(label=><Chip key={label} title={label} selected={s.workout_label===label} onPress={()=>action("edit_session",{id:s.id,workout_label:label})}/>)}</Row>
+  <Row style={{flexWrap:"wrap",gap:6}}>{choices.map(label=><Chip key={label} title={label} selected={s.workout_label===label||(label==="Reformer"&&s.workout_label==="Reformer Pilates")} onPress={()=>action("edit_session",{id:s.id,workout_label:label})}/>)}</Row>
   <Button title="Post it with a photo" icon="camera" onPress={()=>action("post",{id:s.id})}/>
   {editing&&<Input label="Workout label" value={custom} onChange={setCustom}/>}<Row><View style={{flex:1}}><Button secondary title={editing?'Save workout type':"Edit workout type"} icon="edit" onPress={()=>{if(!editing){setEditing(true);return;}action("edit_session",{id:s.id,workout_label:custom,...(s.estimated?{minutes:Number(minutes)}:{})});setEditing(false);}}/></View><View style={{flex:1}}><Button secondary title="Not me? Remove" onPress={()=>action("remove_session",{id:s.id})}/></View></Row>
  </View>;

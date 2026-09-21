@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useEffect, useState } from "react";
+import React, { createContext, useContext, useEffect, useState, useRef } from "react";
 import { Animated, Pressable, ScrollView, Text, TextInput, View, StyleSheet, type ViewStyle, type TextStyle } from "react-native";
 import Svg, { Path, Circle, Line, Rect } from "react-native-svg";
 import type { ThemeName } from "./model";
@@ -34,6 +34,11 @@ export function Chip({ title, selected, onPress, icon }: { title: string; select
 }
 export function Avatar({ name, own = false, size = 34 }: { name: string; own?: boolean; size?: number }) { const t = useTheme(); return <View style={{ width: size, height: size, borderRadius: size, backgroundColor: own ? t.accent : t.tint, alignItems: "center", justifyContent: "center" }}><Txt bold size={size * 0.39} style={{ color: own ? "#fff" : t.ink }}>{name.slice(0, 1).toUpperCase()}</Txt></View>; }
 export function Logo({ white = false, size = 26 }: { white?: boolean; size?: number }) { const t = useTheme(); return <Row style={{ gap: 10 }}><Icon name="flame" size={size * 0.82} color={white ? "#fff" : t.accent} /><Txt serif size={size} style={{ color: white ? "#fff" : t.ink }}>ClassStreak</Txt></Row>; }
+export function StreakFlame({streak,size=20,color}:{streak:number;size?:number;color?:string}){
+ const reduced=useReducedMotion();const previous=useRef(streak);const [scale]=useState(()=>new Animated.Value(1));
+ useEffect(()=>{if(streak>previous.current&&!reduced)Animated.sequence([Animated.timing(scale,{toValue:1.25,duration:180,useNativeDriver:true}),Animated.timing(scale,{toValue:1,duration:220,useNativeDriver:true})]).start();previous.current=streak;return()=>scale.stopAnimation();},[streak,reduced,scale]);
+ return <Animated.View style={{transform:[{scale}]}}><Icon name="flame" size={size} color={color}/></Animated.View>;
+}
 export function Icon({ name, size = 20, color }: { name: string; size?: number; color?: string }) {
   const t = useTheme(); const paths: Record<string, string> = {
     flame: "M12 3c1 5 6 6 6 11a6 6 0 0 1-12 0c0-2 1-4 3-6 0 3 2 4 3 4 2-3 1-6 0-9Z",

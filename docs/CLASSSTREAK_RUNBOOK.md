@@ -14,7 +14,7 @@ GitHub builds use the existing public Supabase repository variables. The Places 
 
 Inspect hosted migrations and schema before applying any SQL. The original three Turf migrations are historical: do not replay them. Apply only the timestamped ClassStreak migrations, in order, in a transaction after inspecting the target. They preserve Auth identities and create a private `classstreak` schema, public authenticated RPCs, sanitized views, revision-only Realtime and private photo storage. `supabase/schedule-classstreak.sql` installs maintenance every 15 minutes. Deploy `seed_demo`, `rollup` and `delete_account` Edge Functions from this repository. `delete_account` uses only the built-in server service key; never place a privileged key in a client environment variable.
 
-Save a schema-only export of the previous schema before retiring it. With no hosted backup available, archive legacy application objects in a private historical schema before dropping them. This gives the existing installation a recovery path without touching Auth users. Record hosted changes and timestamps in `BUILD_STATUS.md`.
+The approved hosted transition preserves the existing Turf tables and both Auth users. Do not drop or archive those tables as part of this deployment. The additive ClassStreak schema gives the old installation a recovery path. Record hosted changes and timestamps in `BUILD_STATUS.md`.
 
 ## Use and Debug
 
@@ -31,3 +31,9 @@ Run `npm run typecheck`, `npm run lint`, `npm test`, `npm run test:db`, `npm run
 For visual review: `node scripts/build-gallery.mjs`, then `node scripts/serve-gallery.mjs`; open localhost:4173 at a phone viewport. It uses real screen components with disposable sample fixtures and explicit adapters for device actions. It is a UI review tool, never evidence of working camera, geofencing, Health, sharing or native widgets. The iOS production bundle is checked separately with `npx expo export --platform ios`.
 
 Physical acceptance still requires SideStore installation, real entry/exit and offline visits, location denial/recovery, camera/export, local notifications, widget refresh and Health permission/overlap checks. Record observations rather than inferring them from compilation.
+
+## Local key in the delivered IPA
+
+The native iPhone app and widget were built by GitHub Actions without the Google key. The delivered local IPA combines that unsigned native payload with the current production bundle and assets, compiled from local .env. This is a native bundle embedding step, not an OTA update. `scripts/package-local-bundle.py` refuses native input changes or a Hermes format mismatch, preserves all other ZIP entries, and records source/native commits and hashes in a provenance file. Do not upload the local IPA publicly without accounting for its bundled client Places key.
+
+After downloading the successful native artifact, compile with `npx expo export:embed --entry-file index.ts --platform ios --dev false --bytecode --bundle-output build/local-bundle/main.jsbundle --assets-dest build/local-bundle`. Then run `python scripts/package-local-bundle.py build/native-release/ClassStreak-unsigned.ipa build/local-bundle build/ClassStreak.ipa --native-ref 3240202`. If native inputs differ, run a new native build instead. The platform/framework inspection is performed in the native workflow; the repackager proves those bytes remain unchanged.
