@@ -44,6 +44,7 @@ export function safeMessage(error: unknown) {
     FORBIDDEN: "That item is no longer available.", NETWORK: "You're offline. Your saved visits will sync when you reconnect.",
     BACKEND_NOT_CONFIGURED: "The account service isn't configured for this build.",
     PERMISSION_REQUIRED: "Allow location access in iPhone Settings to start automatic tracking.",
+    TRY_TOMORROW:"You have reached today’s limit. Please try again tomorrow.",PHONE_COUNTRY_CODE:"Include your country code, for example +1 for a US number.",NUDGE_UNAVAILABLE:"A nudge is not available for this friend right now.",
   };
   return known[raw] ?? (raw.length < 180 && !/token|secret|password=|sql|constraint/i.test(raw) ? raw : "That didn't work. Please try again.");
 }

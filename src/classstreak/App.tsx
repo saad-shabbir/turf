@@ -18,6 +18,10 @@ import {Debug} from "./Debug";
 import {onSessionsCreated,reconcileTracking,startTracking,stopTracking,syncVisits,trackingState} from "./tracking";
 import {clearNotifications,enableNotifications,notificationResponse,testReminder} from "./notifications";
 import type {Action} from "./SessionScreens";
+import {Friends,AddFriends} from "./Friends";
+import {Scanner} from "./Scanner";
+import {clipboardInvite,copyInvite,matchContacts,shareInvite,subscribeSocial} from "./social";
+import * as Haptics from "expo-haptics";
 
 export default function ClassStreakApp() {
   const [fontsLoaded] = useFonts({ Fraunces_600SemiBold, Manrope_400Regular, Manrope_600SemiBold, Manrope_700Bold, Manrope_800ExtraBold });
@@ -33,14 +37,16 @@ export default function ClassStreakApp() {
   const [pane,setPane]=useState("home");const [clockOffset,setClockOffset]=useState(0);const [tracking,setTracking]=useState("");
   const [observedNow,setObservedNow]=useState(()=>Date.now());
   const [editingPlace,setEditingPlace]=useState<string|null>(null);
+  const [authId,setAuthId]=useState<string|null>(null);const [contactMatches,setContactMatches]=useState<{id:string;first_name:string}[]>([]);
   const change = (patch: Partial<Draft>) => setDraft(previous => { const value = { ...previous, ...patch }; void write("cs:draft", value).catch(() => {}); return value; });
   const refresh = useCallback(async () => {
     setObservedNow(Date.now());
     if (!configured) return;
     const { data } = await backend().auth.getSession();
     setSignedIn(!!data.session);
+    setAuthId(data.session?.user.id??null);
     if (!data.session) { setSnapshot(null); return; }
-    try { const value = await getSnapshot(); setSnapshot(value); await write("cs:snapshot", { auth: data.session.user.id, value });setClockOffset(await read("cs:clock_offset",0));const state=await trackingState();setTracking(state.paused?"Automatic tracking is paused. Tap to manage.":""); }
+    try { const value = await getSnapshot(); setSnapshot(value); await write("cs:snapshot", { auth: data.session.user.id, value:{...value,friends:[],feed:[],inbox:[]} });setClockOffset(await read("cs:clock_offset",0));const state=await trackingState();setTracking(state.paused?"Automatic tracking is paused. Tap to manage.":""); }
     catch (e) {
       if (e instanceof Error && e.message === "SETUP_REQUIRED") return;
       const cached = await read<{ auth: string; value: Snapshot } | null>("cs:snapshot", null);
@@ -50,7 +56,7 @@ export default function ClassStreakApp() {
   }, []);
   const run = (action: () => Promise<void>) => { setBusy(true); setMessage(""); void action().catch(e => setMessage(safeMessage(e))).finally(() => setBusy(false)); };
   useEffect(() => {
-    void (async () => { setDraft(await read("cs:draft", newDraft())); await refresh(); })().catch(e => setMessage(safeMessage(e))).finally(() => setReady(true));
+    void (async () => { const saved=await read("cs:draft", newDraft());if(!await read("cs:clipboard_checked",false)){const code=await clipboardInvite().catch(()=>undefined);if(code)saved.invite_code=code;await write("cs:clipboard_checked",true);await write("cs:draft",saved);}setDraft(saved); await refresh(); })().catch(e => setMessage(safeMessage(e))).finally(() => setReady(true));
     const foreground=async()=>{await reconcileTracking().catch(()=>{});await refresh();};
     const app = AppState.addEventListener("change", state => { if (state === "active") void foreground().catch(() => {}); });
     onSessionsCreated(async ids=>{await refresh();if(AppState.currentState==="active"&&ids[0])setPane("session:"+ids[0]);});
@@ -66,9 +72,12 @@ export default function ClassStreakApp() {
     const links = Linking.addEventListener("url", e => { void handle(e.url).catch(e => setMessage(safeMessage(e))); });
     return () => { app.remove(); links.remove();notification.remove();onSessionsCreated(async()=>{}); };
   }, [refresh]);
+  const profileId=snapshot?.profile.id;
+  useEffect(()=>{if(authId&&profileId)return subscribeSocial(authId,refresh);},[authId,profileId,refresh]);
   const complete = async () => {
     const value = await finishOnboarding(draft);
     setSnapshot(value); await write("cs:draft", newDraft());
+    if(draft.invite_code)await call<Snapshot>("cs_social",{action:"invite",payload:{code:draft.invite_code}}).then(setSnapshot).catch(e=>setMessage(safeMessage(e)));
     if(draft.location_consent&&value.places.some(p=>p.enabled))await startTracking().catch(()=>setMessage("Your setup is saved. Automatic tracking can be enabled in Account when location is allowed."));
   };
   const signOut=async()=>{await stopTracking();await clearNotifications();await backend().auth.signOut({scope:"local"});await purge();setSnapshot(null);setSignedIn(false);setDraft(newDraft());setPane("home");setMode("signin");};
@@ -97,10 +106,16 @@ export default function ClassStreakApp() {
       else if(name==="test_reminder")await testReminder();
       else if(name==="enable_notifications")setMessage(await enableNotifications()?"Phone reminders enabled.":"You can enable notifications in iPhone Settings.");
       else if(name==="timezone"){const tz=Intl.DateTimeFormat().resolvedOptions().timeZone;await saveSettings("timezone",{tz});setMessage(`Timezone ${tz} applies from next Monday.`);}
+      else if(name==="social"){setSnapshot(await call<Snapshot>("cs_social",payload));if(payload.action==="reaction")void Haptics.selectionAsync();if(payload.action==="nudge")setMessage("Nudge sent to their ClassStreak inbox.");}
+      else if(name==="delete_comment"||name==="report_comment"){setSnapshot(await call<Snapshot>("cs_social",{action:name==="delete_comment"?"delete_comment":"report",payload}));setMessage(name==="delete_comment"?"Comment removed.":"Comment reported.");}
+      else if(name==="phone"){await call("cs_contacts",{action:"save",phone:payload.phone});await refresh();setMessage("Phone preference saved.");}
+      else if(name==="contacts"){if(!snapshot?.profile.phone_set)throw new Error("Add your phone number in Account first, or use a link, QR or friend code.");const matches=await matchContacts();setContactMatches(matches);if(!matches.length)setMessage("No matches yet. You can still share your invite.");}
+      else if(name==="share_invite"&&snapshot)await shareInvite(snapshot.profile.invite_code);
+      else if(name==="copy_invite"&&snapshot){await copyInvite(snapshot.profile.invite_code);setMessage("Friend code copied.");}
       else throw new Error("This action is not connected yet.");
     });
   };
-  const extra=(target:string)=>target==="debug"&&snapshot?<Debug snapshot={snapshot} action={action} refresh={refresh}/>:target==="add-place"?<PlacesPicker value={snapshot?.places.find(p=>p.id===editingPlace)??null} onSelect={place=>{action("settings",{kind:"place",payload:{...place,id:place.id||undefined}});setEditingPlace(null);setPane("places");}} onError={e=>setMessage(safeMessage(e))}/>:target==="privacy"?<><Txt serif size={32}>Terms and privacy</Txt><Txt>ClassStreak records visits to the places you save. Location observations and exact visit times are private to your account. Accepted friends see session summaries, photos and comments from the day you became friends.</Txt><Txt>Place names are shared only when both sharing switches are on. Studio boards show first name and last initial when you opt in. You can pause tracking, remove a session, unfriend someone or delete your account.</Txt><Txt>Automatic detection can miss a visit or estimate a departure. A recorded visit does not prove exercise or attendance at a class. Demo and simulated records are labeled.</Txt><Txt>Your account data is stored by Supabase. Google receives studio searches. Photos you export through another app are subject to that app’s audience and policies.</Txt></>:null;
+  const extra=(target:string)=>target==="friends"&&snapshot?<Friends snapshot={snapshot} action={action} now={new Date(observedNow+clockOffset)}/>:target==="add-friends"&&snapshot?<AddFriends snapshot={snapshot} action={action} matches={contactMatches}/>:target==="scan"?<Scanner action={action}/>:target==="debug"&&snapshot?<Debug snapshot={snapshot} action={action} refresh={refresh}/>:target==="add-place"?<PlacesPicker value={snapshot?.places.find(p=>p.id===editingPlace)??null} onSelect={place=>{action("settings",{kind:"place",payload:{...place,id:place.id||undefined}});setEditingPlace(null);setPane("places");}} onError={e=>setMessage(safeMessage(e))}/>:target==="privacy"?<><Txt serif size={32}>Terms and privacy</Txt><Txt>ClassStreak records visits to the places you save. Location observations and exact visit times are private to your account. Accepted friends see session summaries, photos and comments from the day you became friends.</Txt><Txt>Place names are shared only when both sharing switches are on. Studio boards show first name and last initial when you opt in. You can pause tracking, remove a session, unfriend someone or delete your account.</Txt><Txt>Automatic detection can miss a visit or estimate a departure. A recorded visit does not prove exercise or attendance at a class. Demo and simulated records are labeled.</Txt><Txt>Your account data is stored by Supabase. Google receives studio searches. Photos you export through another app are subject to that app’s audience and policies.</Txt></>:null;
   const accountForm = <View style={{ gap: 12 }}>
     {signedIn ? <Button title="Save my setup" disabled={busy} onPress={() => run(complete)} /> : <>
       <Input label="Email" value={email} onChange={setEmail} keyboard="email-address" />
