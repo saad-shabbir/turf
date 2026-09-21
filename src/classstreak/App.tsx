@@ -16,7 +16,7 @@ import { PlacesPicker } from "./PlacesPicker";
 import {Product} from "./Product";
 import {Debug} from "./Debug";
 import {onSessionsCreated,reconcileTracking,startTracking,stopTracking,syncVisits,trackingState} from "./tracking";
-import {clearNotifications,enableNotifications,notificationResponse,testReminder} from "./notifications";
+import {announceMilestones,clearNotifications,enableNotifications,notificationResponse,scheduleReminders,testReminder} from "./notifications";
 import type {Action} from "./SessionScreens";
 import {Friends,AddFriends} from "./Friends";
 import {Scanner} from "./Scanner";
@@ -48,7 +48,11 @@ export default function ClassStreakApp() {
     setSignedIn(!!data.session);
     setAuthId(data.session?.user.id??null);
     if (!data.session) { setSnapshot(null); return; }
-    try { const value = await getSnapshot(); setSnapshot(value); await write("cs:snapshot", { auth: data.session.user.id, value:{...value,friends:[],feed:[],inbox:[]} });setClockOffset(await read("cs:clock_offset",0));const state=await trackingState();setTracking(state.paused?"Automatic tracking is paused. Tap to manage.":""); }
+    try { const value = await getSnapshot(); setSnapshot(value); await write("cs:snapshot", { auth: data.session.user.id, value:{...value,friends:[],feed:[],inbox:[]} });setClockOffset(await read("cs:clock_offset",0));const state=await trackingState();setTracking(state.paused?"Automatic tracking is paused. Tap to manage.":"");
+      void scheduleReminders(value).catch(()=>{});
+      const milestone=await announceMilestones(value).catch(()=>null);if(milestone)setMessage(`Class ${milestone}. Your milestone card is ready in Profile.`);
+      const unread=value.inbox.filter(i=>!i.read_at);const previous=await read<string[]>("cs:inbox_seen",[]);if(unread.some(i=>!previous.includes(i.id))){setMessage(`${unread.length} update${unread.length===1?"":"s"} from friends in your inbox.`);await write("cs:inbox_seen",unread.map(i=>i.id));}
+    }
     catch (e) {
       if (e instanceof Error && e.message === "SETUP_REQUIRED") return;
       const cached = await read<{ auth: string; value: Snapshot } | null>("cs:snapshot", null);
@@ -76,6 +80,7 @@ export default function ClassStreakApp() {
   }, [refresh]);
   const profileId=snapshot?.profile.id;
   useEffect(()=>{if(authId&&profileId)return subscribeSocial(authId,refresh);},[authId,profileId,refresh]);
+  useEffect(()=>{if(!profileId)return;let active=true;void (async()=>{if(await read("cs:notification_explained",false)||!active)return;await write("cs:notification_explained",true);Alert.alert("Keep your streak going","Allow reminders for your usual days and newly logged sessions.",[{text:"Not now",style:"cancel"},{text:"Allow reminders",onPress:()=>{void enableNotifications().then(refresh).catch(()=>{});}}]);})();return()=>{active=false;};},[profileId,refresh]);
   const complete = async () => {
     const value = await finishOnboarding(draft);
     setSnapshot(value); await write("cs:draft", newDraft());
@@ -106,7 +111,7 @@ export default function ClassStreakApp() {
       else if(name==="rollup"){await call("cs_rollup",{as_of:new Date(Date.now()+await read("cs:clock_offset",0)).toISOString()});await refresh();setMessage("Your weekly totals have been recalculated.");}
       else if(name==="seed_demo"||name==="remove_demo"){await call("cs_seed_demo",{remove_demo:name==="remove_demo"});await refresh();setMessage(name==="seed_demo"?"Demo sessions and three demo friends loaded.":"Demo data removed.");}
       else if(name==="test_reminder")await testReminder();
-      else if(name==="enable_notifications")setMessage(await enableNotifications()?"Phone reminders enabled.":"You can enable notifications in iPhone Settings.");
+      else if(name==="enable_notifications"){setMessage(await enableNotifications()?"Phone reminders enabled.":"You can enable notifications in iPhone Settings.");await refresh();}
       else if(name==="timezone"){const tz=Intl.DateTimeFormat().resolvedOptions().timeZone;await saveSettings("timezone",{tz});setMessage(`Timezone ${tz} applies from next Monday.`);}
       else if(name==="social"){setSnapshot(await call<Snapshot>("cs_social",payload));if(payload.action==="reaction")void Haptics.selectionAsync();if(payload.action==="nudge")setMessage("Nudge sent to their ClassStreak inbox.");}
       else if(name==="delete_comment"||name==="report_comment"){setSnapshot(await call<Snapshot>("cs_social",{action:name==="delete_comment"?"delete_comment":"report",payload}));setMessage(name==="delete_comment"?"Comment removed.":"Comment reported.");}

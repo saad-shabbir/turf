@@ -5,7 +5,7 @@ import { authenticatedOwner } from "../auth/client";
 import { call, getSnapshot } from "./api";
 import { activity, type Place, type Source } from "./model";
 import { evaluateVisit, distanceMeters, type Candidate, type Fix } from "./engine";
-import {notifySession} from "./notifications";
+import {notifyPendingVisit,notifySession} from "./notifications";
 export const TASK = "TURF_GEOFENCE_V1";
 export const FIX_TASK = "CLASSSTREAK_FIXES_V1";
 type TrackingState = { owner: string | null; token: string | null; paused: boolean; places: Place[]; candidate: Candidate | null; simulated: Candidate | null; outside: string[]; epoch: number };
@@ -30,7 +30,7 @@ async function syncWork() {
  }
 }
 export async function receiveEvent(event: VisitEvent, fix?: {lat:number;lng:number}) {
- await ensureQueue();let startFixes=false,stopFixes=false;
+ await ensureQueue();let startFixes=false,stopFixes=false,qualified=false;
  await transaction(async db=>{
   const state=await read("cs:tracking",initial,db);
   if(!state.owner|| (event.source==="geofence"&&state.paused))return;
@@ -46,7 +46,8 @@ export async function receiveEvent(event: VisitEvent, fix?: {lat:number;lng:numb
   }else{
    if(event.source==="geofence"&&!state.outside.includes(place.id))state.outside.push(place.id);
    if(candidate?.place_id===place.id){
-    const fixes=await read<Fix[]>("cs:fixes",[],db);const result=evaluateVisit(candidate,event.observed_at,fixes,event.kind==="TIMEOUT");
+    const fixes=event.source==="simulated"?[]:await read<Fix[]>("cs:fixes",[],db);const result=evaluateVisit(candidate,event.observed_at,fixes,event.kind==="TIMEOUT");
+    qualified=result.qualifies;
     const speeds=fixes.filter(f=>f.timestamp>=Date.parse(candidate!.entered_at)&&f.accuracy!==null&&f.accuracy>=0&&f.accuracy<=100&&f.speed!==null&&f.speed>=0&&distanceMeters({lat:f.latitude,lng:f.longitude},place!)<=place!.radius_m).map(f=>f.speed!).sort((a,b)=>a-b);
     if(speeds.length>=3){const m=Math.floor(speeds.length/2);event.median_speed=speeds.length%2?speeds[m]!:(speeds[m-1]!+speeds[m]!)/2;}
     reason=result.reason;candidate=null;stopFixes=event.source==="geofence";
@@ -58,7 +59,7 @@ export async function receiveEvent(event: VisitEvent, fix?: {lat:number;lng:numb
  });
  if(startFixes)await Location.startLocationUpdatesAsync(FIX_TASK,{accuracy:Location.Accuracy.Balanced,distanceInterval:100,pausesUpdatesAutomatically:true,showsBackgroundLocationIndicator:true}).catch(()=>{});
  if(stopFixes&&await Location.hasStartedLocationUpdatesAsync(FIX_TASK))await Location.stopLocationUpdatesAsync(FIX_TASK);
- await syncVisits().catch(async()=>{await write("cs:sync_error","Your visits are saved on this phone and will retry.");});
+ await syncVisits().catch(async()=>{await write("cs:sync_error","Your visits are saved on this phone and will retry.");if(qualified)await notifyPendingVisit(event.event_id).catch(()=>{});});
 }
 export async function receiveFixes(locations: Location.LocationObject[]) {
  await transaction(async db=>{const state=await read("cs:tracking",initial,db);if(state.paused||!state.candidate)return;

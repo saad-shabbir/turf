@@ -14,6 +14,9 @@
 12. Existing Auth accounts complete ClassStreak setup after sign-in. Email confirmation is a real pending state; keep drafts until a session exists.
 # Friends and contact details
 
+- Personal reminder schedules cover the next 28 days and refresh on app activity and synchronized visits, staying below iOS's pending-notification limit. Scheduled copy uses generic prompts because iOS cannot query live friend counts while a local notification is delivered. Recap details are computed when opened; no stale friend claim is embedded.
+- Offline qualified callbacks keep encrypted evidence and show “saved on this phone”; an actual counted-session notification waits for the server decision. In-app friend messages use an inbox, own-account Realtime revisions and a next-open banner, with no APNs entitlement.
+
 - Contacts are matched with a server-held HMAC key; the app never receives hashes. Ten-digit contact numbers use the US +1 prefix for this US test group; other numbers need a country code. Numbers are self-entered, not verified, and a match only offers a request requiring acceptance.
 - An invite code is prior consent for an initial friendship. After an unfriend, reusing an old code creates a pending request so it cannot undo revocation.
 - Realtime publishes only each account's revision number. Screens reload the sanitized friend view; shared feed and inbox data are excluded from the offline snapshot cache.
