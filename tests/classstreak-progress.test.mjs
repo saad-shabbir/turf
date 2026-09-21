@@ -4,10 +4,10 @@ import {fresh,actor,rpc,A,B} from './database-harness.mjs';
 const draft={first_name:'Fixture',selected:['reformer','yoga'],goals:{reformer:2,yoga:1},tz:'America/Los_Angeles'};
 test('Demo fixtures have 22 owner sessions and only three scoped demo friends; reload and removal are safe',async()=>{
  const db=await fresh();try{
-  await actor(db,A);await rpc(db,'cs_bootstrap',[draft]);const s=await rpc(db,'cs_seed_demo',[false,[]]);assert.equal(s.sessions.length,22);
+  await actor(db,A);await rpc(db,'cs_bootstrap',[draft]);const s=await rpc(db,'cs_seed_demo',[false,[]]);assert.equal(s.sessions.length,22);assert.equal(s.friends.length,3);
   const p=await rpc(db,'cs_rollup');assert.equal(p.lifetime,22);assert.equal(p.streak,6);assert.equal(p.count,1);
   assert.equal((await rpc(db,'cs_seed_demo',[false,[]])).sessions.length,22);
-  await db.exec('reset role');const names=(await db.query('select first_name from classstreak.users where is_demo order by first_name')).rows.map(r=>r.first_name);assert.deepEqual(names,['Jess','Maya','Priya']);
+  await db.exec('reset role');const names=(await db.query('select first_name from classstreak.users where is_demo order by first_name')).rows.map(r=>r.first_name);assert.deepEqual(names,['Amara','Jess','Lena','Maya','Noah','Priya','Riley','Theo']);
   await actor(db,B);await rpc(db,'cs_bootstrap',[{...draft,first_name:'Peer'}]);await rpc(db,'cs_seed_demo',[true,[]]);
   await actor(db,A);assert.equal((await rpc(db,'cs_snapshot')).sessions.length,22);
   const future=await rpc(db,'cs_rollup',[new Date(Date.now()+14*86400000).toISOString()]);assert.equal(future.streak,0);assert.equal((await rpc(db,'cs_rollup')).streak,6);

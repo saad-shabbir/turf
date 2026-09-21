@@ -1,9 +1,20 @@
 import React,{useEffect,useState} from 'react';
-import {AccessibilityInfo,Animated,Pressable,View,type PressableProps} from 'react-native';
+import {AccessibilityInfo,Animated,Pressable,View,Platform,type PressableProps} from 'react-native';
+import * as Haptics from 'expo-haptics';
+const AnimatedPressable=Animated.createAnimatedComponent(Pressable);
+export function SoftPressable({style,onPressIn,onPressOut,...props}:PressableProps){
+ const reduced=useReducedMotion();const [pressed,setPressed]=useState(false);const [scale]=useState(()=>new Animated.Value(1));
+ return <AnimatedPressable accessibilityRole="button" {...props} style={[typeof style==='function'?style({pressed}):style,{transform:[{scale}]}]} onPressIn={e=>{setPressed(true);if(!reduced)Animated.timing(scale,{toValue:.97,duration:120,useNativeDriver:true}).start();if(Platform.OS!=='web')void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(()=>{});onPressIn?.(e);}} onPressOut={e=>{setPressed(false);Animated.timing(scale,{toValue:1,duration:120,useNativeDriver:true}).start();onPressOut?.(e);}}/>;
+}
 export function useReducedMotion(){
  const [reduced,setReduced]=useState(true);
  useEffect(()=>{let active=true;void AccessibilityInfo.isReduceMotionEnabled().then(v=>{if(active)setReduced(v);});const sub=AccessibilityInfo.addEventListener('reduceMotionChanged',setReduced);return()=>{active=false;sub.remove();};},[]);
  return reduced;
+}
+export function Entrance({children}:{children:React.ReactNode}){
+ const reduced=useReducedMotion();const [value]=useState(()=>new Animated.Value(1));
+ useEffect(()=>{if(!reduced){value.setValue(0);Animated.timing(value,{toValue:1,duration:200,useNativeDriver:true}).start();}return()=>value.stopAnimation();},[reduced,value]);
+ return <Animated.View style={{flex:1,opacity:value,transform:[{translateY:value.interpolate({inputRange:[0,1],outputRange:[6,0]})}]}}>{children}</Animated.View>;
 }
 export function BouncePressable({onPress,children,...props}:PressableProps){
  const reduced=useReducedMotion();const [scale]=useState(()=>new Animated.Value(1));

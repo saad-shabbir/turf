@@ -4,7 +4,7 @@ import { read, write, transaction, database } from "../db/local";
 import { authenticatedOwner } from "../auth/client";
 import { call, getSnapshot } from "./api";
 import { activity, type Place, type Source,type Snapshot } from "./model";
-import { evaluateVisit, distanceMeters, type Candidate, type Fix } from "./engine";
+import { evaluateVisit, distanceMeters,retainedVisitFixes, type Candidate, type Fix } from "./engine";
 import {notifyPendingVisit,notifySession} from "./notifications";
 import {track} from './analytics';
 export const TASK = "TURF_GEOFENCE_V1";
@@ -64,9 +64,9 @@ export async function receiveEvent(event: VisitEvent, fix?: {lat:number;lng:numb
 }
 export async function receiveFixes(locations: Location.LocationObject[]) {
  await transaction(async db=>{const state=await read("cs:tracking",initial,db);if(state.paused||!state.candidate)return;
- const cutoff=Date.now()-2*60*60*1000;const before=await read<Fix[]>("cs:fixes",[],db);
- const fixes=locations.filter(l=>l.coords.accuracy!==null&&l.coords.accuracy>=0&&l.coords.accuracy<=100).map(l=>({timestamp:l.timestamp,latitude:l.coords.latitude,longitude:l.coords.longitude,accuracy:l.coords.accuracy,speed:l.coords.speed}));
- await write("cs:fixes",[...before,...fixes].filter(f=>f.timestamp>=cutoff).slice(-300),db);
+ const before=await read<Fix[]>("cs:fixes",[],db);
+ const fixes=retainedVisitFixes(locations.filter(l=>l.coords.accuracy!==null&&l.coords.accuracy>=0&&l.coords.accuracy<=100).map(l=>({timestamp:l.timestamp,latitude:l.coords.latitude,longitude:l.coords.longitude,accuracy:l.coords.accuracy,speed:l.coords.speed})),state.candidate,Date.now());
+ await write("cs:fixes",retainedVisitFixes([...before,...fixes],state.candidate,Date.now()),db);
  if(fixes.length)await write("cs:last_fix",new Date(fixes[fixes.length-1]!.timestamp).toISOString(),db);
  });
 }

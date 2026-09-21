@@ -23,3 +23,12 @@ test("Weeks use local Monday and an unfinished current week does not break a str
  assert.equal(progress([s],weeks,[],"America/Los_Angeles",new Date("2026-09-22T12:00:00Z")).streak,1);
  assert.equal(progress([s],weeks,[],"America/Los_Angeles",new Date("2026-09-29T12:00:00Z")).streak,0);
 });
+
+test("Location storage excludes fixes outside the saved arrival area and expired observations",async()=>{
+ const {retainedVisitFixes}=await import("../src/classstreak/engine.ts");const now=Date.now();
+ const inside={timestamp:now-1000,latitude:0,longitude:0,accuracy:20,speed:0};
+ const result=retainedVisitFixes([inside,{...inside,latitude:1},{...inside,timestamp:now-7200001},{...inside,accuracy:500},{...inside,timestamp:now+1000}],{lat:0,lng:0,radius_m:100},now);
+ assert.deepEqual(result,[inside]);
+ assert.equal(evaluateVisit({...candidate,activity_key:'custom:Climbing'},"2026-09-21T17:24:59Z").qualifies,false);
+ assert.equal(evaluateVisit({...candidate,activity_key:'custom:Climbing'},"2026-09-21T17:25:00Z").qualifies,true);
+});

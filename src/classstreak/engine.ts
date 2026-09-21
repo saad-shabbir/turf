@@ -2,15 +2,18 @@ import type { ActivityKey, Goal, Session, Source, Week } from "./model";
 export type Fix = { timestamp: number; latitude: number; longitude: number; accuracy: number | null; speed: number | null };
 export type Candidate = { place_id: string; activity_key: ActivityKey; workout_label: string; entered_at: string; source: Source; lat: number; lng: number; radius_m: number };
 export type Evaluation = { qualifies: boolean; reason: string; duration_sec: number; estimated: boolean };
-const minutes: Record<ActivityKey, number> = { reformer: 35, mat: 35, hot: 35, yoga: 35, cycling: 30, barre: 35, hiit: 30, boxing: 30, gym: 25 };
+const minutes: Record<string, number> = { reformer: 35, mat: 35, hot: 35, yoga: 35, cycling: 30, barre: 35, hiit: 30, boxing: 30, gym: 25 };
 export function distanceMeters(a: {lat:number;lng:number}, b: {lat:number;lng:number}) {
  const r=Math.PI/180;const s=Math.sin((b.lat-a.lat)*r/2)**2+Math.cos(a.lat*r)*Math.cos(b.lat*r)*Math.sin((b.lng-a.lng)*r/2)**2;return 6371000*2*Math.atan2(Math.sqrt(s),Math.sqrt(1-s));
+}
+export function retainedVisitFixes(fixes:Fix[],place:{lat:number;lng:number;radius_m:number},now:number){
+ return fixes.filter(f=>f.timestamp>=now-2*60*60*1000&&f.timestamp<=now&&f.accuracy!==null&&f.accuracy>=0&&f.accuracy<=100&&distanceMeters({lat:f.latitude,lng:f.longitude},place)<=place.radius_m).slice(-300);
 }
 export function evaluateVisit(candidate: Candidate, exitedAt: string, fixes: Fix[] = [], estimated = false): Evaluation {
  const start=Date.parse(candidate.entered_at),end=Date.parse(exitedAt),duration=Math.floor((end-start)/1000);
  if(!Number.isFinite(duration)||duration<0) return {qualifies:false,reason:"Clock moved backwards",duration_sec:0,estimated};
  if(duration<180) return {qualifies:false,reason:"Drive-by: under 3 minutes",duration_sec:duration,estimated};
- if(duration<minutes[candidate.activity_key]*60) return {qualifies:false,reason:`Under ${minutes[candidate.activity_key]} minutes`,duration_sec:duration,estimated};
+ if(duration<(minutes[candidate.activity_key]??25)*60) return {qualifies:false,reason:`Under ${(minutes[candidate.activity_key]??25)} minutes`,duration_sec:duration,estimated};
  const speeds=fixes.filter(f=>f.timestamp>=start&&f.timestamp<=end&&f.accuracy!==null&&f.accuracy>=0&&f.accuracy<=100&&f.speed!==null&&f.speed>=0&&distanceMeters({lat:f.latitude,lng:f.longitude},{lat:candidate.lat,lng:candidate.lng})<=candidate.radius_m).map(f=>f.speed!).sort((a,b)=>a-b);
  if(speeds.length>=3) {const mid=Math.floor(speeds.length/2);const median=speeds.length%2?speeds[mid]!:(speeds[mid-1]!+speeds[mid]!)/2;if(median>=2)return {qualifies:false,reason:"Movement was too fast for a session",duration_sec:duration,estimated};}
  return {qualifies:true,reason:estimated?"Counted · estimated departure":"Counted",duration_sec:Math.min(14400,duration),estimated};

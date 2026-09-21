@@ -6,7 +6,7 @@ const draft = (name="Fixture") => ({first_name:name,last_name:"Tester",selected:
 export async function setup(db,id=A,name="Fixture") {await actor(db,id);return rpc(db,"cs_bootstrap",[draft(name)]);}
 test("ClassStreak setup is atomic, uses authenticated owner, and hidden goals stay zero",async()=>{
  const db=await fresh();try{
-  const s=await setup(db); assert.equal(s.profile.first_name,"Fixture");assert.equal(s.goals.reduce((n,g)=>n+g.goal,0),3);assert.equal(s.usual_days.length,3);
+  const s=await setup(db); assert.equal(s.profile.first_name,"Fixture");assert.equal(s.goals.reduce((n,g)=>n+g.goal,0),3);assert.equal(s.usual_days.length,9);assert.equal(new Set(s.usual_days.map(d=>d.activity_key)).size,3);
   assert.equal(s.profile.auth_id,undefined);assert.equal(s.profile.phone_hash,undefined);
   assert.equal((await rpc(db,"cs_bootstrap",[draft("Changed")])).profile.first_name,"Fixture");
   await actor(db,B);await assert.rejects(()=>rpc(db,"cs_bootstrap",[{...draft(),goals:{reformer:99}}]));
@@ -18,7 +18,7 @@ const ev=(place,kind,at,source="simulated")=>({event_id:randomUUID(),place_id:pl
 test("Visit replay, drive-by rejection, per-day counting, correction and manual cap",async()=>{
  const db=await fresh();try{
   await setup(db);const saved=await rpc(db,"cs_settings",["place",{name:"Synthetic Gym",activity_key:"gym",lat:0,lng:0,radius_m:150}]);const p=saved.places[0].id;
-  const now=Date.now()-7200000;const t=n=>new Date(now+n*60000).toISOString();
+  const anchor=new Date();anchor.setUTCDate(anchor.getUTCDate()-1);anchor.setUTCHours(18,0,0,0);const now=anchor.getTime();const t=n=>new Date(now+n*60000).toISOString();
   const drive=[ev(p,"ENTER",t(0)),ev(p,"EXIT",t(2))];await rpc(db,"cs_ingest",[drive,null]);
   assert.equal((await rpc(db,"cs_snapshot")).sessions.length,0);
   const visit=[ev(p,"ENTER",t(10)),ev(p,"EXIT",t(50))];await rpc(db,"cs_ingest",[visit,null]);await rpc(db,"cs_ingest",[visit,null]);

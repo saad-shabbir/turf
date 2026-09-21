@@ -53,7 +53,7 @@ export default function ClassStreakApp() {
   const [password, setPassword] = useState("");
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
-  const [pane,setPane]=useState("home");const [clockOffset,setClockOffset]=useState(0);const [tracking,setTracking]=useState("");
+  const [pane,setPane]=useState("home");const [celebrationKey,setCelebrationKey]=useState("");const [clockOffset,setClockOffset]=useState(0);const [tracking,setTracking]=useState("");
   const [observedNow,setObservedNow]=useState(()=>Date.now());
   const [editingPlace,setEditingPlace]=useState<string|null>(null);
   const [authId,setAuthId]=useState<string|null>(null);const [contactMatches,setContactMatches]=useState<{id:string;first_name:string}[]>([]);
@@ -108,10 +108,13 @@ export default function ClassStreakApp() {
     return () => { app.remove(); links.remove();notification.remove();onSessionsCreated(async()=>{}); };
   }, [refresh,change]);
   const profileId=snapshot?.profile.id;
+  useEffect(()=>{if(!profileId||!pane.startsWith("milestone:"))return;let active=true;const key=profileId+":"+pane;void (async()=>{if(!await read("cs:celebrated:"+key,false)&&active){setCelebrationKey(key);await write("cs:celebrated:"+key,true);}})();return()=>{active=false;};},[profileId,pane]);
   useEffect(()=>{if(authId&&profileId)return subscribeSocial(authId,refresh);},[authId,profileId,refresh]);
   useEffect(()=>{if(!profileId)return;let active=true;void (async()=>{if(await read("cs:notification_explained",false)||!active)return;await write("cs:notification_explained",true);Alert.alert("Keep your streak going","Allow reminders for your usual days and newly logged sessions.",[{text:"Not now",style:"cancel"},{text:"Allow reminders",onPress:()=>{void enableNotifications().then(refresh).catch(()=>{});}}]);})();return()=>{active=false;};},[profileId,refresh]);
   const complete = async () => {
-    const value = await finishOnboarding(draft);
+    let value = await finishOnboarding(draft);
+    if(!value.sessions.length&&!value.friends.length){value=await call<Snapshot>("cs_seed_demo",{remove_demo:false,demo_places:demoPlaces});await write("cs:milestones_seen",[1,10]);}
+    setPane("home");
     setSnapshot(value); await write("cs:draft", newDraft());await refresh();
     if(draft.invite_code)await call<Snapshot>("cs_social",{action:"invite",payload:{code:draft.invite_code}}).then(setSnapshot).catch(e=>setMessage(safeMessage(e)));
     if(await read("cs:pending_studio",false)){setPane("studios");await write("cs:pending_studio",false);}
@@ -133,7 +136,7 @@ export default function ClassStreakApp() {
         const kind=String(payload.kind);const values=payload.payload as Record<string,unknown>;const editing=["place","disable_place"].includes(kind);const wasActive=editing&&!(await trackingState()).paused;
         if(editing){await syncVisits();await stopTracking();}
         setSnapshot(await saveSettings(kind,values));if(wasActive)await startTracking();
-        if(["goals","days"].includes(kind))setMessage(kind==="goals"?"Saved for next Monday.":"Usual days saved.");
+        setMessage(kind==="goals"?"Saved for next Monday.":kind==="days"?"Usual days saved.":"Saved.");
       }else if(name==='connect_health'){await connectHealth();await refresh();setMessage('Apple Health matching is enabled.');}
       else if(name==='sync_health'&&snapshot){await syncHealth(snapshot,true);await refresh();setMessage('Matching workouts checked.');}
       else if(name==="edit_session"||name==="remove_session"||name==="manual_session"){
@@ -147,7 +150,7 @@ export default function ClassStreakApp() {
       else if(name==="test_reminder")await testReminder();
       else if(name==="enable_notifications"){setMessage(await enableNotifications()?"Phone reminders enabled.":"You can enable notifications in iPhone Settings.");await refresh();}
       else if(name==="timezone"){const tz=Intl.DateTimeFormat().resolvedOptions().timeZone;await saveSettings("timezone",{tz});setMessage(`Timezone ${tz} applies from next Monday.`);}
-      else if(name==="social"){setSnapshot(await call<Snapshot>("cs_social",payload));if(payload.action==="reaction")void Haptics.selectionAsync();if(payload.action==="nudge")setMessage("Nudge sent to their ClassStreak inbox.");}
+      else if(name==="social"){setSnapshot(await call<Snapshot>("cs_social",payload));if(payload.action==="reaction")void Haptics.selectionAsync();if(payload.action==="nudge")setMessage("Nudge sent to their ClassStreak inbox.");if(payload.action==="comment")setMessage("Comment posted.");}
       else if(name==="delete_comment"||name==="report_comment"){setSnapshot(await call<Snapshot>("cs_social",{action:name==="delete_comment"?"delete_comment":"report",payload}));setMessage(name==="delete_comment"?"Comment removed.":"Comment reported.");}
       else if(name==="phone"){await call("cs_contacts",{action:"save",phone:payload.phone});await refresh();setMessage("Phone preference saved.");}
       else if(name==="contacts"){if(!snapshot?.profile.phone_set)throw new Error("Add your phone number in Account first, or use a link, QR or friend code.");const matches=await matchContacts();setContactMatches(matches);if(!matches.length)setMessage("No matches yet. You can still share your invite.");}
@@ -158,7 +161,7 @@ export default function ClassStreakApp() {
       else throw new Error("This action is not connected yet.");
     });
   };
-  const extra=(target:string)=>target==="health"&&snapshot?<Health snapshot={snapshot} action={action}/>:target==="studios"&&snapshot?<Studios snapshot={snapshot} action={action}/>:target==="studio-qr"&&studioQR?<StudioQR {...studioQR} action={action}/>:(target==="recap"||target.startsWith("milestone:"))&&snapshot?<Celebration snapshot={snapshot} action={action} now={new Date(observedNow+clockOffset)} milestone={target.startsWith("milestone:")?Number(target.slice(10)):undefined}/>:target==="friends"&&snapshot?<Friends snapshot={snapshot} action={action} now={new Date(observedNow+clockOffset)}/>:target==="add-friends"&&snapshot?<AddFriends snapshot={snapshot} action={action} matches={contactMatches}/>:target==="scan"?<Scanner action={action}/>:target==="debug"&&snapshot?<Debug snapshot={snapshot} action={action} refresh={refresh}/>:target==="add-place"?<PlacesPicker value={snapshot?.places.find(p=>p.id===editingPlace)??null} onSelect={place=>{action("settings",{kind:"place",payload:{...place,id:place.id||undefined}});setEditingPlace(null);setPane("places");}} onError={e=>setMessage(safeMessage(e))}/>:target==="privacy"?<><Txt serif size={32}>Terms and privacy</Txt><Txt>ClassStreak records visits to the places you save. Location observations and exact visit times are private to your account. Accepted friends see session summaries, photos and comments from the day you became friends.</Txt><Txt>Place names are shared only when both sharing switches are on. Studio boards show first name and last initial when you opt in. You can pause tracking, remove a session, unfriend someone or delete your account.</Txt><Txt>Automatic detection can miss a visit or estimate a departure. A recorded visit does not prove exercise or attendance at a class. Demo and simulated records are labeled.</Txt><Txt>Your account data is stored by Supabase. Google receives studio searches. Photos you export through another app are subject to that app’s audience and policies.</Txt></>:null;
+  const extra=(target:string)=>target==="health"&&snapshot?<Health snapshot={snapshot} action={action}/>:target==="studios"&&snapshot?<Studios snapshot={snapshot} action={action}/>:target==="studio-qr"&&studioQR?<StudioQR {...studioQR} action={action}/>:(target==="recap"||target.startsWith("milestone:"))&&snapshot?<Celebration celebrate={celebrationKey===snapshot.profile.id+":"+target} snapshot={snapshot} action={action} now={new Date(observedNow+clockOffset)} milestone={target.startsWith("milestone:")?Number(target.slice(10)):undefined}/>:target==="friends"&&snapshot?<Friends snapshot={snapshot} action={action} now={new Date(observedNow+clockOffset)}/>:target==="add-friends"&&snapshot?<AddFriends snapshot={snapshot} action={action} matches={contactMatches}/>:target==="scan"?<Scanner action={action}/>:target==="debug"&&snapshot?<Debug snapshot={snapshot} action={action} refresh={refresh}/>:target==="add-place"?<PlacesPicker choices={[...new Set([...(snapshot?.goals??[]).map(g=>g.activity_key),...(snapshot?.pending_goals??[]).map(g=>g.activity_key)])]} value={snapshot?.places.find(p=>p.id===editingPlace)??null} onSelect={place=>{action("settings",{kind:"place",payload:{...place,id:place.id||undefined}});setEditingPlace(null);setPane("places");}} onError={e=>setMessage(safeMessage(e))}/>:target==="privacy"?<><Txt serif size={32}>Terms and privacy</Txt><Txt>ClassStreak records visits to the places you save. Location observations and exact visit times are private to your account. Accepted friends see session summaries, photos and comments from the day you became friends.</Txt><Txt>Place names are shared only when both sharing switches are on. Studio boards show first name and last initial when you opt in. You can pause tracking, remove a session, unfriend someone or delete your account.</Txt><Txt>Automatic detection can miss a visit or estimate a departure. A recorded visit does not prove exercise or attendance at a class. Demo and simulated records are labeled.</Txt><Txt>Your account data is stored by Supabase. Google receives studio searches. Photos you export through another app are subject to that app’s audience and policies.</Txt></>:null;
   const accountForm = <View style={{ gap: 12 }}>
     {signedIn ? <Button title="Save my setup" disabled={busy} onPress={() => run(complete)} /> : <>
       <Input label="Email" value={email} onChange={setEmail} keyboard="email-address" />
@@ -185,10 +188,10 @@ export default function ClassStreakApp() {
       })} />
       {mode === "signin" && <Button secondary title="Forgot password" onPress={() => setMode("forgot")} />}
       <Button secondary title="Back" onPress={() => setMode("onboarding")} />
-    </Screen> : snapshot ? pane==="plus"?<Plus close={()=>setPane("profile")} start={()=>{setMessage("Coming soon");setPane("profile");}}/>:(pane==="post"||pane.startsWith("post:"))?<Post snapshot={snapshot} sessionId={pane.startsWith("post:")?pane.slice(5):undefined} action={action} now={new Date(observedNow+clockOffset)} onSaved={refresh}/>:<Product snapshot={snapshot} pane={pane} action={action} extra={extra} now={new Date(observedNow+clockOffset)} tracking={tracking}/> : <Onboarding draft={draft} change={change} next={() => change({ step: Math.min(9, draft.step + 1) })} requestLocation={() => run(async () => {
+    </Screen> : snapshot ? pane==="plus"?<Plus close={()=>setPane("profile")} start={()=>{setMessage("Coming soon");setPane("profile");}}/>:(pane==="post"||pane.startsWith("post:"))?<Post snapshot={snapshot} sessionId={pane.startsWith("post:")?pane.slice(5):undefined} action={action} now={new Date(observedNow+clockOffset)} onSaved={refresh}/>:<Product snapshot={snapshot} pane={pane} action={action} extra={extra} now={new Date(observedNow+clockOffset)} tracking={tracking}/> : <Onboarding key={draft.step} draft={draft} change={change} next={() => change({ step: Math.min(9, draft.step + 1) })} requestLocation={() => run(async () => {
       const fg = await Location.requestForegroundPermissionsAsync();
       const bg=fg.status === "granted"?await Location.requestBackgroundPermissionsAsync():null;track("permission_result",{permission:bg?.granted?"always":fg.granted?"when_in_use":"denied"});
       change({ location_consent: fg.status === "granted", step: 6 });
-    })} search={<PlacesPicker value={draft.place} onSelect={place => { change({ place, step: 4 }); }} onError={e => setMessage(safeMessage(e))} />} account={accountForm} />}
+    })} search={<PlacesPicker choices={draft.selected} value={null} onSelect={place => { const places=[...(draft.places??(draft.place?[draft.place]:[])).filter(p=>!(p.google_place_id&&p.google_place_id===place.google_place_id)&&!(p.name===place.name&&p.lat===place.lat&&p.lng===place.lng)),place]; change({ place:places[0],places }); }} onError={e => setMessage(safeMessage(e))} />} account={accountForm} />}
   </SafeAreaView></Theme>;
 }

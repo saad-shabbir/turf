@@ -10,3 +10,9 @@ test('Reminder dates respect local time, DST, preferences, and logged-day cancel
  assert.equal(localTime('2026-11-01',8,0,snapshot.profile.tz).toISOString(),'2026-11-01T16:00:00.000Z');
  assert.equal(quietUntil(new Date('2026-09-23T05:30:00Z'),snapshot.profile.tz).toISOString(),'2026-09-23T14:00:00.000Z');assert.equal(quietUntil(now,snapshot.profile.tz),null);
 });
+
+test('Each activity keeps its own reminder time; a completed activity does not hide the next one',()=>{
+ const now=new Date('2026-09-22T13:00:00Z');const s={...snapshot,usual_days:[{activity_key:'yoga',weekday:1,time_of_day:'morning'},{activity_key:'gym',weekday:1,time_of_day:'evening'}]};
+ const first=reminderPlan(s,now).find(r=>r.id==='usual:2026-09-22');assert.match(first.title,/Yoga/);assert.equal(first.at.toISOString(),'2026-09-22T15:00:00.000Z');
+ const next=reminderPlan({...s,sessions:[{activity_key:'yoga',day_key:'2026-09-22',week_key:'2026-09-21',counted:true}]},now).find(r=>r.id==='usual:2026-09-22');assert.match(next.title,/Gym/);assert.equal(next.at.toISOString(),'2026-09-23T00:00:00.000Z');
+});

@@ -11,3 +11,5 @@ The user's instruction to build docs/CLASSSTREAK_V4.md supersedes Turf milestone
 - Inspect the deployed state before migration application; keep a recovery path. Never reset the hosted database or replay old migrations.
 - Pin dependencies and locks. Test authorization and business rules in a disposable database; run typecheck, lint and visual checks.
 - Separate implemented, automated, hosted, IPA and physical-phone evidence. Physical acceptance is NOT TESTED until observed.
+
+Change request 1 in docs/CHANGE_REQUEST_1.md supersedes the original visual defaults and the earlier walkthrough draft. Clay is the new default; sample venue boards are owner-isolated, labeled projections and must never contaminate the public real-visit board.
