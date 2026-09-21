@@ -5,6 +5,7 @@ import {type Snapshot,type Friend,type FeedItem,weekDays,fullDays} from "./model
 import {progress,dayKey} from "./engine";
 import {Avatar,Button,Card,Divider,Empty,Icon,Input,Row,Txt,useTheme} from "./ui";
 import type {Action} from "./SessionScreens";
+import {PrivatePhoto} from "./PrivatePhoto";
 export const inviteLink=(code:string)=>(process.env.EXPO_PUBLIC_INVITE_BASE_URL??"https://classstreak.app")+"/j/"+code;
 export function Friends({snapshot:s,action,now}:{snapshot:Snapshot;action:Action;now:Date}){
  const t=useTheme();const [tab,setTab]=useState("league");const own=progress(s.sessions,s.weeks,s.goals,s.profile.tz,now);
@@ -26,7 +27,7 @@ function Nudge({friend:f,action}:{friend:Friend;action:Action}){return <Card sty
 function ActivityCard({item,me,action}:{item:FeedItem;me:string;action:Action}){
  const t=useTheme();const [expanded,setExpanded]=useState(false);const [body,setBody]=useState("");const comments=expanded?item.comments:item.comments.slice(-1);
  return <Card style={{gap:9}}><Row><Avatar name={item.first_name}/><View style={{flex:1}}><Txt size={13}><Txt size={13} bold>{item.user_id===me?"You":item.first_name}</Txt> went to {item.workout_label}</Txt><Txt muted size={10}>{item.place_name?item.place_name+" · ":""}{item.relative_time}{item.source==="seed"?" · demo":item.source==="simulated"?" · simulated":item.source==="manual"?" · manual, unverified":""}</Txt></View></Row>
- {item.photo_url&&<Button small secondary title="View session photo" icon="camera" onPress={()=>action("view_photo",{session_id:item.id,path:item.photo_url})}/>}{!!item.note&&<Txt size={13}>{item.note}</Txt>}
+ {item.photo_url&&<PrivatePhoto key={item.photo_url} path={item.photo_url}/>}{!!item.note&&<Txt size={13}>{item.note}</Txt>}
  <Row style={{gap:6}}>{["🔥","👏","💀","🫡"].map(emoji=>{const r=item.reactions.find(r=>r.emoji===emoji);return <Pressable key={emoji} accessibilityRole="button" accessibilityLabel={`React ${emoji}, ${r?.count??0} reactions`} accessibilityState={{selected:r?.mine??false}} onPress={()=>action("social",{action:"reaction",payload:{session_id:item.id,emoji}})} style={{minHeight:44,minWidth:52,borderWidth:1,borderColor:r?.mine?t.accent:t.line,borderRadius:12,backgroundColor:r?.mine?t.tint:t.paper,padding:8,justifyContent:"center"}}><Txt size={12}>{emoji}  {r?.count??""}</Txt></Pressable>;})}</Row>
  <Row><Pressable onPress={()=>setExpanded(!expanded)} style={{flex:1,paddingVertical:5}}><Txt muted size={11}>{item.comments.length?`${item.comments.length} comments`:"No comments yet"}</Txt></Pressable><Pressable onPress={()=>setExpanded(true)} style={{paddingVertical:5}}><Txt bold size={11}>Add a comment</Txt></Pressable></Row>
  {comments.length>0&&<Divider/>}{comments.map(c=><Pressable key={c.id} onLongPress={()=>action(c.user_id===me?"delete_comment":"report_comment",{id:c.id})}><Row style={{alignItems:"flex-start",gap:6}}><Avatar name={c.first_name} size={22}/><Txt size={11} style={{flex:1}}><Txt bold size={11}>{c.first_name}</Txt> {c.body}</Txt>{expanded&&<Pressable accessibilityLabel={c.user_id===me?"Delete comment":"Report comment"} onPress={()=>action(c.user_id===me?"delete_comment":"report_comment",{id:c.id})}><Icon size={13} name={c.user_id===me?"x":"flag"}/></Pressable>}</Row></Pressable>)}

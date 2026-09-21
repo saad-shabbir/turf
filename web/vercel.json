@@ -1,0 +1,1 @@
+{"rewrites":[{"source":"/j/:code","destination":"/index.html"},{"source":"/venue/:id","destination":"/index.html"}]}
