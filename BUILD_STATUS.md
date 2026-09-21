@@ -14,3 +14,5 @@
 
 - Final local `build/ClassStreak.ipa` packaged successfully: Hermes version 98 matches the native runtime, all 165 non-bundle ZIP entries are byte-identical, all 46 bundle/asset entries are present with no additional asset paths, and the bundle decodes without privileged Supabase credentials. The Places key is present only in the local client bundle, as intended.
 - Email signup and GitHub Pages activation remain pending user approval. The latter was rejected by automatic approval review as an additional public hosting surface. Existing authenticated users can use ClassStreak meanwhile.
+
+- Auth URL inspection found a localhost default with no mobile redirect allowlist. Adding the exact `turf://account` callback was prepared but rejected by automatic approval review; this setting also awaits explicit authorization. Confirmation/reset email return-to-app is therefore not operational yet. No confirmation/reset emails were sent during this check.
