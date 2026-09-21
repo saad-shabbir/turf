@@ -26,6 +26,7 @@ import {Post,Celebration} from "./Post";
 import {syncPhotos} from "./photos";
 import {Studios,StudioQR} from "./Studios";
 import {demoPlaces} from "./demo-places";
+import {Plus} from "./Plus";
 
 export default function ClassStreakApp() {
   const [fontsLoaded] = useFonts({ Fraunces_600SemiBold, Manrope_400Regular, Manrope_600SemiBold, Manrope_700Bold, Manrope_800ExtraBold });
@@ -160,7 +161,7 @@ export default function ClassStreakApp() {
       })} />
       {mode === "signin" && <Button secondary title="Forgot password" onPress={() => setMode("forgot")} />}
       <Button secondary title="Back" onPress={() => setMode("onboarding")} />
-    </Screen> : snapshot ? (pane==="post"||pane.startsWith("post:"))?<Post snapshot={snapshot} sessionId={pane.startsWith("post:")?pane.slice(5):undefined} action={action} now={new Date(observedNow+clockOffset)} onSaved={refresh}/>:<Product snapshot={snapshot} pane={pane} action={action} extra={extra} now={new Date(observedNow+clockOffset)} tracking={tracking}/> : <Onboarding draft={draft} change={change} next={() => change({ step: Math.min(9, draft.step + 1) })} requestLocation={() => run(async () => {
+    </Screen> : snapshot ? pane==="plus"?<Plus close={()=>setPane("profile")} start={()=>{setMessage("Coming soon");setPane("profile");}}/>:(pane==="post"||pane.startsWith("post:"))?<Post snapshot={snapshot} sessionId={pane.startsWith("post:")?pane.slice(5):undefined} action={action} now={new Date(observedNow+clockOffset)} onSaved={refresh}/>:<Product snapshot={snapshot} pane={pane} action={action} extra={extra} now={new Date(observedNow+clockOffset)} tracking={tracking}/> : <Onboarding draft={draft} change={change} next={() => change({ step: Math.min(9, draft.step + 1) })} requestLocation={() => run(async () => {
       const fg = await Location.requestForegroundPermissionsAsync();
       if (fg.status === "granted") await Location.requestBackgroundPermissionsAsync();
       change({ location_consent: fg.status === "granted", step: 6 });
