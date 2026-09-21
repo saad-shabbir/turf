@@ -13,6 +13,7 @@
 # Generated/build output
 node_modules/
 .expo/
+.expo-home/
 ios/
 android/
 build/
