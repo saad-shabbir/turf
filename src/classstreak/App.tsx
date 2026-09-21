@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import { Alert, AppState, Pressable, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useFonts } from "expo-font";
@@ -27,6 +27,9 @@ import {syncPhotos} from "./photos";
 import {Studios,StudioQR} from "./Studios";
 import {demoPlaces} from "./demo-places";
 import {Plus} from "./Plus";
+import {Health,connectHealth,syncHealth} from "./Health";
+import {updateWidget} from "./widgets";
+import {track} from "./analytics";
 
 export default function ClassStreakApp() {
   const [fontsLoaded] = useFonts({ Fraunces_600SemiBold, Manrope_400Regular, Manrope_600SemiBold, Manrope_700Bold, Manrope_800ExtraBold });
@@ -44,23 +47,26 @@ export default function ClassStreakApp() {
   const [editingPlace,setEditingPlace]=useState<string|null>(null);
   const [authId,setAuthId]=useState<string|null>(null);const [contactMatches,setContactMatches]=useState<{id:string;first_name:string}[]>([]);
   const [studioQR,setStudioQR]=useState<{name:string;code:string}|null>(null);
+  const authEpoch=useRef(0);
   const change = (patch: Partial<Draft>) => setDraft(previous => { const value = { ...previous, ...patch }; void write("cs:draft", value).catch(() => {}); return value; });
   const refresh = useCallback(async () => {
+    const epoch=authEpoch.current;
     setObservedNow(Date.now());
     if (!configured) return;
     const { data } = await backend().auth.getSession();
     setSignedIn(!!data.session);
     setAuthId(data.session?.user.id??null);
-    if (!data.session) { setSnapshot(null); return; }
-    try { const value = await getSnapshot(); setSnapshot(value); await write("cs:snapshot", { auth: data.session.user.id, value:{...value,friends:[],feed:[],inbox:[]} });setClockOffset(await read("cs:clock_offset",0));const state=await trackingState();setTracking(state.paused?"Automatic tracking is paused. Tap to manage.":"");
+    if (!data.session) { setSnapshot(null);try{updateWidget(null);}catch{}return; }
+    try { const value = await getSnapshot();if(epoch!==authEpoch.current)return;setSnapshot(value); await write("cs:snapshot", { auth: data.session.user.id, value:{...value,friends:[],feed:[],inbox:[]} });setClockOffset(await read("cs:clock_offset",0));const state=await trackingState();setTracking(state.paused?"Automatic tracking is paused. Tap to manage.":"");
+      try{updateWidget(value);}catch{}void syncHealth(value).catch(()=>{});
       void scheduleReminders(value).catch(()=>{});
-      const milestone=await announceMilestones(value).catch(()=>null);if(milestone)setMessage(`Class ${milestone}. Your milestone card is ready in Profile.`);
+      const milestone=await announceMilestones(value).catch(()=>null);if(milestone){setPane('milestone:'+milestone);track('milestone',{count:milestone});}
       const unread=value.inbox.filter(i=>!i.read_at);const previous=await read<string[]>("cs:inbox_seen",[]);if(unread.some(i=>!previous.includes(i.id))){setMessage(`${unread.length} update${unread.length===1?"":"s"} from friends in your inbox.`);await write("cs:inbox_seen",unread.map(i=>i.id));}
     }
     catch (e) {
       if (e instanceof Error && e.message === "SETUP_REQUIRED") return;
       const cached = await read<{ auth: string; value: Snapshot } | null>("cs:snapshot", null);
-      if (cached?.auth === data.session.user.id) setSnapshot(cached.value);
+      if (cached?.auth === data.session.user.id&&epoch===authEpoch.current) setSnapshot(cached.value);
       throw e;
     }
   }, []);
@@ -97,14 +103,15 @@ export default function ClassStreakApp() {
     if(await read("cs:pending_studio",false)){setPane("studios");await write("cs:pending_studio",false);}
     if(draft.location_consent&&value.places.some(p=>p.enabled))await startTracking().catch(()=>setMessage("Your setup is saved. Automatic tracking can be enabled in Account when location is allowed."));
   };
-  const signOut=async()=>{await stopTracking();await clearNotifications();await backend().auth.signOut({scope:"local"});await purge();setSnapshot(null);setSignedIn(false);setDraft(newDraft());setPane("home");setMode("signin");};
+  const signOut=async()=>{authEpoch.current++;try{updateWidget(null);}catch{}await stopTracking();await clearNotifications();await backend().auth.signOut({scope:"local"});await purge();setSnapshot(null);setSignedIn(false);setAuthId(null);setDraft(newDraft());setPane("home");setMode("signin");};
   const action:Action=(name,payload={})=>{
-    if(name==="navigate"){setPane(String(payload.pane));return;}
+    if(name==="navigate"){setPane(String(payload.pane));if(payload.pane==='plus')track('paywall_viewed',{placement:pane});return;}
     if(name==="post"){setPane("post:"+String(payload.id));return;}
     if(name==="message"){setMessage(String(payload.text));return;}
     if(name==="error"){setMessage(safeMessage(payload.error));return;}
     if(name==="edit_place"){setEditingPlace(String(payload.id));setPane("add-place");return;}
     if(name==="privacy"){setPane("privacy");return;}
+    if(name==='delete_account'){Alert.alert('Delete your account?','This permanently removes your account, sessions, photos and friendships. You cannot undo it.',[{text:'Cancel',style:'cancel'},{text:'Delete everything',style:'destructive',onPress:()=>run(async()=>{await stopTracking();const {error}=await backend().functions.invoke('delete_account',{body:{confirm:'DELETE'}});if(error)throw new Error('Deletion has not finished. Please try again to complete it.');await signOut();setMessage('Your account and app data have been deleted.');})}]);return;}
     if(name==="sign_out"){Alert.alert("Sign out?","Saved server sessions stay in your account. Any visits still waiting to sync on this phone will be removed.",[{text:"Cancel",style:"cancel"},{text:"Sign out",style:"destructive",onPress:()=>run(signOut)}]);return;}
     if(name==="reset_onboarding"){run(async()=>{await stopTracking();await write("cs:draft",newDraft());setDraft(newDraft());setSnapshot(null);setPane("home");});return;}
     run(async()=>{
@@ -113,7 +120,9 @@ export default function ClassStreakApp() {
         if(editing){await syncVisits();await stopTracking();}
         setSnapshot(await saveSettings(kind,values));if(wasActive)await startTracking();
         if(["goals","days"].includes(kind))setMessage(kind==="goals"?"Saved for next Monday.":"Usual days saved.");
-      }else if(name==="edit_session"||name==="remove_session"||name==="manual_session"){
+      }else if(name==='connect_health'){await connectHealth();await refresh();setMessage('Apple Health matching is enabled.');}
+      else if(name==='sync_health'&&snapshot){await syncHealth(snapshot,true);await refresh();setMessage('Matching workouts checked.');}
+      else if(name==="edit_session"||name==="remove_session"||name==="manual_session"){
         setSnapshot(await call<Snapshot>("cs_session",{action:name==="edit_session"?"edit":name==="remove_session"?"remove":"manual",payload}));if(name!=="edit_session")setPane("history");
       }else if(name==="start_tracking"){
         await saveSettings("profile",{tracking_consent:true});const fg=await Location.requestForegroundPermissionsAsync();if(fg.granted)await Location.requestBackgroundPermissionsAsync();await startTracking();await refresh();
@@ -134,7 +143,7 @@ export default function ClassStreakApp() {
       else throw new Error("This action is not connected yet.");
     });
   };
-  const extra=(target:string)=>target==="studios"&&snapshot?<Studios snapshot={snapshot} action={action}/>:target==="studio-qr"&&studioQR?<StudioQR {...studioQR} action={action}/>:(target==="recap"||target.startsWith("milestone:"))&&snapshot?<Celebration snapshot={snapshot} action={action} now={new Date(observedNow+clockOffset)} milestone={target.startsWith("milestone:")?Number(target.slice(10)):undefined}/>:target==="friends"&&snapshot?<Friends snapshot={snapshot} action={action} now={new Date(observedNow+clockOffset)}/>:target==="add-friends"&&snapshot?<AddFriends snapshot={snapshot} action={action} matches={contactMatches}/>:target==="scan"?<Scanner action={action}/>:target==="debug"&&snapshot?<Debug snapshot={snapshot} action={action} refresh={refresh}/>:target==="add-place"?<PlacesPicker value={snapshot?.places.find(p=>p.id===editingPlace)??null} onSelect={place=>{action("settings",{kind:"place",payload:{...place,id:place.id||undefined}});setEditingPlace(null);setPane("places");}} onError={e=>setMessage(safeMessage(e))}/>:target==="privacy"?<><Txt serif size={32}>Terms and privacy</Txt><Txt>ClassStreak records visits to the places you save. Location observations and exact visit times are private to your account. Accepted friends see session summaries, photos and comments from the day you became friends.</Txt><Txt>Place names are shared only when both sharing switches are on. Studio boards show first name and last initial when you opt in. You can pause tracking, remove a session, unfriend someone or delete your account.</Txt><Txt>Automatic detection can miss a visit or estimate a departure. A recorded visit does not prove exercise or attendance at a class. Demo and simulated records are labeled.</Txt><Txt>Your account data is stored by Supabase. Google receives studio searches. Photos you export through another app are subject to that app’s audience and policies.</Txt></>:null;
+  const extra=(target:string)=>target==="health"&&snapshot?<Health snapshot={snapshot} action={action}/>:target==="studios"&&snapshot?<Studios snapshot={snapshot} action={action}/>:target==="studio-qr"&&studioQR?<StudioQR {...studioQR} action={action}/>:(target==="recap"||target.startsWith("milestone:"))&&snapshot?<Celebration snapshot={snapshot} action={action} now={new Date(observedNow+clockOffset)} milestone={target.startsWith("milestone:")?Number(target.slice(10)):undefined}/>:target==="friends"&&snapshot?<Friends snapshot={snapshot} action={action} now={new Date(observedNow+clockOffset)}/>:target==="add-friends"&&snapshot?<AddFriends snapshot={snapshot} action={action} matches={contactMatches}/>:target==="scan"?<Scanner action={action}/>:target==="debug"&&snapshot?<Debug snapshot={snapshot} action={action} refresh={refresh}/>:target==="add-place"?<PlacesPicker value={snapshot?.places.find(p=>p.id===editingPlace)??null} onSelect={place=>{action("settings",{kind:"place",payload:{...place,id:place.id||undefined}});setEditingPlace(null);setPane("places");}} onError={e=>setMessage(safeMessage(e))}/>:target==="privacy"?<><Txt serif size={32}>Terms and privacy</Txt><Txt>ClassStreak records visits to the places you save. Location observations and exact visit times are private to your account. Accepted friends see session summaries, photos and comments from the day you became friends.</Txt><Txt>Place names are shared only when both sharing switches are on. Studio boards show first name and last initial when you opt in. You can pause tracking, remove a session, unfriend someone or delete your account.</Txt><Txt>Automatic detection can miss a visit or estimate a departure. A recorded visit does not prove exercise or attendance at a class. Demo and simulated records are labeled.</Txt><Txt>Your account data is stored by Supabase. Google receives studio searches. Photos you export through another app are subject to that app’s audience and policies.</Txt></>:null;
   const accountForm = <View style={{ gap: 12 }}>
     {signedIn ? <Button title="Save my setup" disabled={busy} onPress={() => run(complete)} /> : <>
       <Input label="Email" value={email} onChange={setEmail} keyboard="email-address" />

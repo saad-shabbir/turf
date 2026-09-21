@@ -1,6 +1,6 @@
 create table classstreak.tracking_devices (
  user_id uuid primary key references classstreak.users on delete cascade, installation_id uuid not null, token uuid not null default gen_random_uuid(),
- active boolean not null default true, started_at timestamptz not null default now(), last_seen timestamptz not null default now()
+ active boolean not null default true, started_at timestamptz not null default now(), last_seen timestamptz not null default now(), stopped_at timestamptz
 );
 create table classstreak.visit_candidates (
  user_id uuid references classstreak.users on delete cascade, place_id uuid not null references classstreak.places on delete cascade,
@@ -20,7 +20,7 @@ alter table classstreak.region_state enable row level security;
 
 create function classstreak.recount(u uuid) returns void language plpgsql security definer set search_path='' as $$
 begin
- update classstreak.sessions s set counted=(s.removed_at is null and s.id=(select x.id from classstreak.sessions x where x.user_id=u and x.activity_key=s.activity_key and x.day_key=s.day_key and x.removed_at is null order by x.started_at,x.id limit 1)) where s.user_id=u;
+ update classstreak.sessions s set counted=(s.removed_at is null and s.id=(select x.id from classstreak.sessions x join classstreak.activities a on a.key=x.activity_key where x.user_id=u and x.activity_key=s.activity_key and x.day_key=s.day_key and x.removed_at is null and (x.source='manual' or x.duration_sec>=a.min_minutes*60) order by x.started_at,x.id limit 1)) where s.user_id=u;
 end $$;
 create function classstreak.close_visit(u uuid, at_time timestamptz, estimated boolean default false, median_speed double precision default null, visit_source text default 'geofence') returns uuid language plpgsql security definer set search_path='' as $$
 declare c classstreak.visit_candidates; p classstreak.places; duration integer; minimum integer; z text; result uuid; started_day date; begin
@@ -35,11 +35,11 @@ declare c classstreak.visit_candidates; p classstreak.places; duration integer; 
  if duration>=minimum and (median_speed is null or median_speed<2) and not exists(
   select 1 from classstreak.suppressions where user_id=u and place_id=c.place_id and weekday=(extract(isodow from c.entered_at at time zone z)::integer-1)
    and hour=extract(hour from c.entered_at at time zone z)::integer and expires_at>now()
- ) and not exists(select 1 from classstreak.sessions where user_id=u and place_id=c.place_id and abs(extract(epoch from started_at-c.entered_at))<=300) then
+ ) and not exists(select 1 from classstreak.sessions where user_id=u and place_id=c.place_id and source=c.source and abs(extract(epoch from started_at-c.entered_at))<=300) then
   perform classstreak.ensure_week(u,c.entered_at);
   insert into classstreak.sessions(user_id,place_id,venue_id,activity_key,workout_label,started_at,ended_at,duration_sec,source,estimated,week_key,day_key,event_key)
    values(u,c.place_id,c.venue_id,c.activity_key,c.workout_label,c.entered_at,c.entered_at+make_interval(secs=>duration),duration,c.source,estimated,
-    classstreak.monday(c.entered_at,z),started_day,c.place_id::text||':'||c.entered_at::text) returning id into result;
+    classstreak.monday(c.entered_at,z),started_day,c.source||':'||c.place_id::text||':'||c.entered_at::text) returning id into result;
   perform classstreak.recount(u);
  end if;
  delete from classstreak.visit_candidates where user_id=u and source=visit_source;
@@ -52,13 +52,12 @@ declare u uuid:=classstreak.me(); device classstreak.tracking_devices; begin
   if not (select tracking_consent from classstreak.users where id=u) then raise exception 'CONSENT_REQUIRED';end if;
   if installation is null or not exists(select 1 from classstreak.places where user_id=u and enabled) then raise exception 'PLACE_REQUIRED';end if;
   insert into classstreak.tracking_devices(user_id,installation_id) values(u,installation)
-   on conflict(user_id) do update set installation_id=excluded.installation_id,token=gen_random_uuid(),active=true,started_at=now(),last_seen=now()
+   on conflict(user_id) do update set installation_id=excluded.installation_id,token=gen_random_uuid(),active=true,started_at=now(),last_seen=now(),stopped_at=null
    returning * into device;
   delete from classstreak.visit_candidates where user_id=u and source='geofence';
   delete from classstreak.region_state where user_id=u;
  elsif action='stop' then
-  update classstreak.tracking_devices set active=false where user_id=u and token=capture_token;
-  delete from classstreak.visit_candidates where user_id=u and token=capture_token;
+  update classstreak.tracking_devices set active=false,stopped_at=coalesce(stopped_at,now()) where user_id=u and token=capture_token;
  elsif action='status' then
   select * into device from classstreak.tracking_devices where user_id=u and active;
  else raise exception 'UNKNOWN_ACTION';end if;
@@ -73,7 +72,7 @@ declare u uuid:=classstreak.me(); e jsonb; p classstreak.places; c classstreak.v
  for e in select * from jsonb_array_elements(events) loop
   eid:=(e->>'event_id')::uuid;at_time:=(e->>'observed_at')::timestamptz;src:=coalesce(e->>'source','geofence');kind:=e->>'kind';
   if src not in ('geofence','simulated') or kind not in ('ENTER','EXIT','TIMEOUT') then raise exception 'INVALID_EVENT';end if;
-  if src='geofence' and (not coalesce(device.active,false) or device.token is distinct from capture_token or at_time<device.started_at-interval '5 minutes' or at_time>now()+interval '2 minutes' or at_time<now()-interval '30 days') then raise exception 'CAPTURE_EXPIRED';end if;
+  if src='geofence' and (device.token is distinct from capture_token or device.user_id is null or (not device.active and at_time>device.stopped_at) or at_time<device.started_at-interval '5 minutes' or at_time>now()+interval '2 minutes' or at_time<now()-interval '30 days') then raise exception 'CAPTURE_EXPIRED';end if;
   if src='simulated' and (at_time>now()+interval '370 days' or at_time<now()-interval '370 days') then raise exception 'INVALID_TIME';end if;
   if exists(select 1 from classstreak.processed_events where user_id=u and event_id=eid) then accepted:=accepted||to_jsonb(eid);continue;end if;
   select * into p from classstreak.places where id=(e->>'place_id')::uuid and user_id=u;

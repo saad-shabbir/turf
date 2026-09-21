@@ -48,7 +48,7 @@ export async function receiveEvent(event: VisitEvent, fix?: {lat:number;lng:numb
    if(candidate?.place_id===place.id){
     const fixes=event.source==="simulated"?[]:await read<Fix[]>("cs:fixes",[],db);const result=evaluateVisit(candidate,event.observed_at,fixes,event.kind==="TIMEOUT");
     qualified=result.qualifies;
-    const speeds=fixes.filter(f=>f.timestamp>=Date.parse(candidate!.entered_at)&&f.accuracy!==null&&f.accuracy>=0&&f.accuracy<=100&&f.speed!==null&&f.speed>=0&&distanceMeters({lat:f.latitude,lng:f.longitude},place!)<=place!.radius_m).map(f=>f.speed!).sort((a,b)=>a-b);
+    const speeds=fixes.filter(f=>f.timestamp>=Date.parse(candidate!.entered_at)&&f.timestamp<=Date.parse(event.observed_at)&&f.accuracy!==null&&f.accuracy>=0&&f.accuracy<=100&&f.speed!==null&&f.speed>=0&&distanceMeters({lat:f.latitude,lng:f.longitude},place!)<=place!.radius_m).map(f=>f.speed!).sort((a,b)=>a-b);
     if(speeds.length>=3){const m=Math.floor(speeds.length/2);event.median_speed=speeds.length%2?speeds[m]!:(speeds[m-1]!+speeds[m]!)/2;}
     reason=result.reason;candidate=null;stopFixes=event.source==="geofence";
    }else reason="Outside region";

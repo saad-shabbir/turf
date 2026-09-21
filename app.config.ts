@@ -4,6 +4,7 @@ const config: ExpoConfig = {
   slug: "turf",
   version: "2.0.0",
   scheme: "turf",
+  icon:"./assets/icon.png",
   platforms: ["ios"],
   ios: {
     bundleIdentifier: "com.turf.privatealpha",
@@ -12,6 +13,7 @@ const config: ExpoConfig = {
   },
   plugins: [
     "expo-router",
+    ["expo-splash-screen",{backgroundColor:"#FBEFF2",image:"./assets/splash.png",imageWidth:180}],
     [
       "expo-location",
       {
@@ -28,9 +30,10 @@ const config: ExpoConfig = {
     ["expo-contacts", { contactsPermission: "Find friends who chose to share their phone number with ClassStreak." }],
     ["expo-image-picker", { photosPermission: "Choose a photo for your ClassStreak session.", cameraPermission: false, microphonePermission: false }],
     ["expo-media-library", { photosPermission: "Choose session photos.", savePhotosPermission: "Save your ClassStreak sticker photo." }],
-    "react-native-share",
+    ["react-native-share", {}],
+    ["expo-widgets", {bundleIdentifier:"com.turf.privatealpha.widgets",groupIdentifier:"group.com.turf.privatealpha",enablePushNotifications:false,widgets:[{name:"ClassStreakWidget",displayName:"ClassStreak",description:"Your streak and this week's sessions.",ios:{supportedFamilies:["systemSmall","systemMedium","accessoryCircular"]}}]}],
     ["expo-sqlite", { useSQLCipher: true }],
-    "./plugins/with-m1-privacy.cjs",
+    "./plugins/with-classstreak-privacy.cjs",
   ],
 };
 export default config;

@@ -47,7 +47,7 @@ declare result jsonb; milestone integer; begin
  insert into classstreak.streaks(user_id,current,best,last_week_key) values(u,(result->>'streak')::integer,(result->>'best')::integer,(result->>'week')::date)
  on conflict(user_id) do update set current=excluded.current,best=excluded.best,last_week_key=excluded.last_week_key;
  delete from classstreak.milestones where user_id=u and count>(result->>'lifetime')::integer;
- foreach milestone in array array[1,10,25,50,100] loop
+ foreach milestone in array array[1,10,25,50,100,250] loop
   if (result->>'lifetime')::integer>=milestone then insert into classstreak.milestones(user_id,count) values(u,milestone) on conflict do nothing; end if;
  end loop;
 end $$;
@@ -108,7 +108,7 @@ end $$;
 -- Service-only scheduled job; no request parameter can nominate another owner.
 create function classstreak.maintenance() returns void language plpgsql security definer set search_path='' as $$
 declare r record; begin
- for r in select user_id,source,entered_at from classstreak.visit_candidates where source='geofence' and entered_at<=now()-interval '4 hours' loop perform classstreak.close_visit(r.user_id,r.entered_at+interval '4 hours',true,null,r.source);end loop;
+ for r in select c.user_id,c.source,c.entered_at from classstreak.visit_candidates c join classstreak.tracking_devices d on d.user_id=c.user_id and d.token=c.token and d.active where c.source='geofence' and c.entered_at<=now()-interval '4 hours' loop perform classstreak.close_visit(r.user_id,r.entered_at+interval '4 hours',true,null,r.source);end loop;
  for r in select id from classstreak.users loop perform classstreak.rollup_one(r.id);end loop;
  delete from classstreak.suppressions where expires_at<now();
  delete from classstreak.processed_events where observed_at<now()-interval '30 days';
