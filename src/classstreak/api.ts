@@ -1,11 +1,17 @@
 import { backend, configured, authenticatedOwner } from "../auth/client";
 import type { Draft, Snapshot } from "./model";
 import { write } from "../db/local";
+import {track} from './analytics';
 export { configured };
 export async function call<T>(name: string, args: Record<string, unknown> = {}): Promise<T> {
   await authenticatedOwner();
   const { data, error } = await backend().rpc(name, args);
   if (error) throw new Error(error.message);
+  const p=(args.payload??{}) as Record<string,unknown>;
+  if(name==='cs_session')track(args.action==='remove'?'session_removed':args.action==='edit'?'workout_type_edited':'session_logged',args.action==='manual'?{source:'manual',activity:String(p.activity_key),duration:Number(p.minutes)*60}:{});
+  if(name==='cs_bootstrap')track('account_created');
+  if(name==='cs_settings'&&args.kind==='place')track('place_saved',{activity:String(p.activity_key),radius:Number(p.radius_m)});
+  if(name==='cs_social'){const kind=String(args.action);const event=({request:'friend_request_sent',accept:'friend_added',invite:'friend_added',reaction:'reaction',comment:'comment',nudge:'nudge_sent'} as Record<string,string>)[kind];if(event)track(event,kind==='request'?{method:'contacts'}:{});}
   return data as T;
 }
 export const getSnapshot = () => call<Snapshot>("cs_snapshot");

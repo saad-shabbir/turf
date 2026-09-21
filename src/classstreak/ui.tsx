@@ -1,7 +1,8 @@
-import React, { createContext, useContext } from "react";
-import { Pressable, ScrollView, Text, TextInput, View, StyleSheet, type ViewStyle, type TextStyle } from "react-native";
+import React, { createContext, useContext, useEffect, useState } from "react";
+import { Animated, Pressable, ScrollView, Text, TextInput, View, StyleSheet, type ViewStyle, type TextStyle } from "react-native";
 import Svg, { Path, Circle, Line, Rect } from "react-native-svg";
 import type { ThemeName } from "./model";
+import {useReducedMotion} from './motion';
 
 export const themes = {
   blush: { paper: "#FBF0F2", card: "#FFFFFF", ink: "#3B1D2E", accent: "#CF2E66", tint: "#F5B8C8", muted: "#7A5A68", line: "#F0D9DF" },
@@ -58,10 +59,17 @@ export function Icon({ name, size = 20, color }: { name: string; size?: number; 
     comment: "M3 3h18v14H9l-6 5Z", edit: "m3 17 12-12 4 4L7 21H3Zm12-12 3-3 4 4-3 3",
     crown: "m2 6 5 5 5-8 5 8 5-5-3 14H5Z", link: "m10 8 4-4a5 5 0 0 1 7 7l-4 4m-3 1-4 4a5 5 0 0 1-7-7l4-4m1 7 8-8",
     mail: "M2 4h20v16H2Zm0 0 10 9L22 4", watch: "M8 6V1h8v5M8 18v5h8v-5M6 6h12v12H6Z",
+    qr:"M3 3h6v6H3ZM15 3h6v6h-6ZM3 15h6v6H3ZM15 15h3v3h-3Zm3 3h3v3h-3M12 3v5m0 4h4m5 0v3M3 12h5m4 4v5",
+    flag:"M5 22V3m0 0h7l2 3h7v10h-7l-2-3H5",
   };
   return <Svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color ?? t.ink} strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round"><Path d={paths[name] ?? paths.star} /></Svg>;
 }
-export function Ring({ count, goal }: { count: number; goal: number }) { const t = useTheme(); const ratio = goal > 0 ? Math.min(1, count / goal) : 0; return <View style={{ width: 70, height: 70, justifyContent: "center", alignItems: "center" }}><Svg width={70} height={70} style={StyleSheet.absoluteFill}><Circle cx={35} cy={35} r={29} stroke={t.line} strokeWidth={7} fill="none" /><Circle cx={35} cy={35} r={29} stroke={t.accent} strokeWidth={7} fill="none" strokeDasharray={`${ratio * 182.2} 182.2`} rotation={-90} origin="35,35" /></Svg><Txt bold size={13}>{count}/{goal}</Txt></View>; }
+const AnimatedCircle=Animated.createAnimatedComponent(Circle);
+export function Ring({ count, goal }: { count: number; goal: number }) {
+ const t=useTheme();const reduced=useReducedMotion();const [value]=useState(()=>new Animated.Value(count));const [display,setDisplay]=useState(count);
+ useEffect(()=>{const id=value.addListener(e=>setDisplay(Math.round(e.value)));Animated.timing(value,{toValue:count,duration:reduced?0:300,useNativeDriver:false}).start();return()=>{value.removeListener(id);value.stopAnimation();};},[count,reduced,value]);
+ return <View accessible accessibilityRole="progressbar" accessibilityLabel="This week's sessions" accessibilityValue={{min:0,max:Math.max(goal,count),now:count,text:`${count} of ${goal} sessions`}} style={{width:70,height:70,justifyContent:'center',alignItems:'center'}}><Svg width={70} height={70} style={StyleSheet.absoluteFill}><Circle cx={35} cy={35} r={29} stroke={t.line} strokeWidth={7} fill="none"/><AnimatedCircle cx={35} cy={35} r={29} stroke={t.accent} strokeWidth={7} fill="none" strokeDasharray="182.2 182.2" strokeDashoffset={value.interpolate({inputRange:[0,Math.max(1,goal)],outputRange:[182.2,0],extrapolate:'clamp'})} rotation={-90} origin="35,35"/></Svg><Txt bold size={13}>{display}/{goal}</Txt></View>;
+}
 export function Screen({ children, footer, scroll = true, style }: { children: React.ReactNode; footer?: React.ReactNode; scroll?: boolean; style?: ViewStyle }) {
   const t = useTheme(); const inner = <View style={[{ flexGrow: 1, padding: 20, gap: 16 }, style]}>{children}</View>;
   return <View style={{ flex: 1, backgroundColor: t.paper }}>{scroll ? <ScrollView keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false} contentContainerStyle={{ flexGrow: 1 }}>{inner}</ScrollView> : inner}{footer && <View style={{ paddingHorizontal: 20, paddingBottom: 18, paddingTop: 8, gap: 9, backgroundColor: t.paper }}>{footer}</View>}</View>;

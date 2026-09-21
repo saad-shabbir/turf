@@ -14,8 +14,8 @@
 node_modules/
 .expo/
 .expo-home/
-ios/
-android/
+/ios/
+/android/
 build/
 dist/
 coverage/

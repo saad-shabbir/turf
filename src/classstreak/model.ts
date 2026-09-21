@@ -22,7 +22,7 @@ export type Week = { week_key: string; goal: number; goals: Goal[]; tz: string }
 export type Friend = { id: string; first_name: string; status: "pending" | "accepted"; requested_by: string; weekly_count: number; weekly_goal: number; streak: number; days: number[]; usual_days: number[]; is_demo: boolean; time_of_day?: TimeOfDay; nudge_available?: boolean };
 export type FeedItem = { id: string; user_id: string; first_name: string; activity_key: ActivityKey; workout_label: string; duration_sec: number; place_name: string | null; relative_time: string; source: Source; photo_url: string | null; note: string | null; reactions: { emoji: string; count: number; mine: boolean }[]; comments: { id: string; user_id: string; first_name: string; body: string }[] };
 export type InboxItem = { id: string; kind: string; body: string; read_at: string | null; session_id: string | null };
-export type Snapshot = { profile: Profile; goals: Goal[]; pending_goals: Goal[]; usual_days: { weekday: number; time_of_day: TimeOfDay }[]; places: Place[]; sessions: Session[]; weeks: Week[]; friends: Friend[]; feed: FeedItem[]; inbox: InboxItem[]; server_time: string };
+export type Snapshot = { achievements?:{id:string;user_id:string;first_name:string;count:number;source:Source}[]; profile: Profile; goals: Goal[]; pending_goals: Goal[]; usual_days: { weekday: number; time_of_day: TimeOfDay }[]; places: Place[]; sessions: Session[]; weeks: Week[]; friends: Friend[]; feed: FeedItem[]; inbox: InboxItem[]; server_time: string };
 export type Draft = { step: number; selected: ActivityKey[]; goals: Record<string, number>; place: Place | null; days: number[]; time: TimeOfDay; theme: ThemeName; first_name: string; last_name: string; gender: string | null; invite_code: string; location_consent: boolean };
 export const newDraft = (): Draft => ({ step: 0, selected: [], goals: {}, place: null, days: [], time: "evening", theme: "blush", first_name: "", last_name: "", gender: null, invite_code: "", location_consent: false });
 export function draftGoals(selected: ActivityKey[], previous: Record<string, number>): Record<string, number> {
@@ -44,6 +44,9 @@ export function safeMessage(error: unknown) {
     FORBIDDEN: "That item is no longer available.", NETWORK: "You're offline. Your saved visits will sync when you reconnect.",
     BACKEND_NOT_CONFIGURED: "The account service isn't configured for this build.",
     PERMISSION_REQUIRED: "Allow location access in iPhone Settings to start automatic tracking.",
+    CAPTURE_EXPIRED:'These visits belong to a previous tracking setup. Open Account to review tracking.',
+    ACCOUNT_DELETING:'Account deletion is pending. Use Delete account again to finish.',
+    PLACE_REQUIRED:'Save a studio or gym before starting automatic tracking.',
     TRY_TOMORROW:"You have reached today’s limit. Please try again tomorrow.",PHONE_COUNTRY_CODE:"Include your country code, for example +1 for a US number.",NUDGE_UNAVAILABLE:"A nudge is not available for this friend right now.",
   };
   return known[raw] ?? (raw.length < 180 && !/token|secret|password=|sql|constraint/i.test(raw) ? raw : "That didn't work. Please try again.");

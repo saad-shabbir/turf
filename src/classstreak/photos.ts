@@ -7,6 +7,7 @@ import {authenticatedOwner,backend} from "../auth/client";
 import {read,write,transaction} from "../db/local";
 import {call} from "./api";
 import {inviteLink} from "./Friends";
+import {track} from './analytics';
 type Upload={id:string;owner:string;session_id:string;path:string;base64:string;note:string};
 export async function queuePhoto(uri:string,sessionId:string,note:string){
  const owner=await authenticatedOwner();const id=Crypto.randomUUID();const file=new File(uri);if(file.size>10485760)throw new Error("Choose a smaller photo.");
@@ -30,12 +31,15 @@ async function work(){
 }
 export async function saveToPhotos(uri:string){
  const permission=await MediaLibrary.requestPermissionsAsync(true);if(!permission.granted)throw new Error("Allow saving photos in iPhone Settings.");
- await MediaLibrary.Asset.create(uri);
+  await MediaLibrary.Asset.create(uri);
+  track('sticker_shared',{destination:'photos'});
 }
 export async function sharePhoto(uri:string,code:string){
  const link=inviteLink(code);await Clipboard.setStringAsync(link);
- await NativeShare.open({url:uri,type:"image/jpeg",message:`Join me on ClassStreak: ${link}\nFriend code: ${code}`,failOnCancel:false});
+  await NativeShare.open({url:uri,type:"image/jpeg",message:`Join me on ClassStreak: ${link}\nFriend code: ${code}`,failOnCancel:false});
+  track('sticker_shared',{destination:'share_sheet'});
 }
+export async function discardQueuedPhotos(sessionId:string){await transaction(async db=>{await write('cs:uploads',(await read<Upload[]>('cs:uploads',[],db)).filter(row=>row.session_id!==sessionId),db);});}
 // Authenticated downloads enforce current friendship on every request; no public/signed URL.
 export async function readPhoto(path:string){
  await authenticatedOwner();const {data,error}=await backend().storage.from("classstreak-photos").download(path);if(error)throw new Error("That photo is no longer available.");

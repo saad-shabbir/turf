@@ -1,3 +1,4 @@
+import {Confetti} from "./motion";
 import React,{useRef,useState} from "react";
 import {Image,PanResponder,Pressable,StyleSheet,View,useWindowDimensions} from "react-native";
 import {CameraView,useCameraPermissions} from "expo-camera";
@@ -40,5 +41,5 @@ export function Post({snapshot:s,sessionId,action,now,onSaved}:{snapshot:Snapsho
 export function Celebration({snapshot:s,action,now,milestone}:{snapshot:Snapshot;action:Action;now:Date;milestone?:number}){
  const t=useTheme();const image=useRef<View>(null);const stats=progress(s.sessions,s.weeks,s.goals,s.profile.tz,now);
  const share=()=>{void captureRef(image,{format:"jpg",quality:.95,width:1080}).then(uri=>sharePhoto(uri,s.profile.invite_code)).catch(error=>action("error",{error}));};
- return <View style={{gap:20}}><View ref={image} collapsable={false} style={{padding:32,paddingVertical:65,gap:22,alignItems:"center",backgroundColor:t.paper,borderRadius:22}}><Logo/><Icon name={milestone?"trophy":"flame"} size={48} color={t.accent}/><Txt serif size={42} style={{textAlign:"center"}}>{milestone?`Class ${milestone}.`:`${stats.count} of ${stats.goal}.`}</Txt><Txt serif size={27}>{milestone?"You showed up.":"That was your week."}</Txt><Card dark><Txt bold size={25} style={{color:"#fff"}}>{stats.streak} weeks in a row</Txt></Card><Txt muted>Go to class. It counts itself.</Txt></View><Button title="Share your card" icon="share" onPress={share}/><Button secondary title="Back" onPress={()=>action("navigate",{pane:"profile"})}/></View>;
+ return <View style={{gap:20}}><View ref={image} collapsable={false} style={{padding:32,paddingVertical:65,gap:22,alignItems:"center",backgroundColor:t.paper,borderRadius:22}}><Logo/><Icon name={milestone?"trophy":"flame"} size={48} color={t.accent}/><Txt serif size={42} style={{textAlign:"center"}}>{milestone?`Class ${milestone}.`:`${stats.count} of ${stats.goal}.`}</Txt><Txt serif size={27}>{milestone?"You showed up.":"That was your week."}</Txt><Card dark><Txt bold size={25} style={{color:"#fff"}}>{stats.streak} weeks in a row</Txt></Card><Txt muted>Go to class. It counts itself.</Txt></View>{milestone&&<Confetti accent={t.accent} tint={t.tint}/>}<Button title="Share your card" icon="share" onPress={share}/><Button secondary title="Back" onPress={()=>action("navigate",{pane:"profile"})}/></View>;
 }

@@ -3,9 +3,10 @@ import * as Crypto from "expo-crypto";
 import { read, write, transaction, database } from "../db/local";
 import { authenticatedOwner } from "../auth/client";
 import { call, getSnapshot } from "./api";
-import { activity, type Place, type Source } from "./model";
+import { activity, type Place, type Source,type Snapshot } from "./model";
 import { evaluateVisit, distanceMeters, type Candidate, type Fix } from "./engine";
 import {notifyPendingVisit,notifySession} from "./notifications";
+import {track} from './analytics';
 export const TASK = "TURF_GEOFENCE_V1";
 export const FIX_TASK = "CLASSSTREAK_FIXES_V1";
 type TrackingState = { owner: string | null; token: string | null; paused: boolean; places: Place[]; candidate: Candidate | null; simulated: Candidate | null; outside: string[]; epoch: number };
@@ -26,7 +27,7 @@ async function syncWork() {
   const token=rows[0]!.token;const boundary=rows.findIndex(r=>r.token!==token);const group=boundary<0?rows:rows.slice(0,boundary);
   const result=await call<{accepted:string[];created:string[]}>("cs_ingest",{events:group.map(r=>JSON.parse(r.payload) as VisitEvent),capture_token:token});
   await transaction(async db=>{const state=await read("cs:tracking",initial,db);if(state.owner!==owner)return;for(const id of result.accepted)await db.runAsync("DELETE FROM cs_outbox WHERE owner=? AND event_id=?",owner,id);await write("cs:last_sync",new Date().toISOString(),db);});
-  if(result.created.length){await notifySession(result.created).catch(()=>{});if(notifying)await notifying(result.created);}
+  if(result.created.length){const s=await getSnapshot();for(const session of s.sessions.filter(s=>result.created.includes(s.id)))track('session_logged',{activity:session.activity_key,duration:session.duration_sec,counted:session.counted,source:session.source});await notifySession(result.created).catch(()=>{});if(notifying)await notifying(result.created);}
  }
 }
 export async function receiveEvent(event: VisitEvent, fix?: {lat:number;lng:number}) {
@@ -55,7 +56,7 @@ export async function receiveEvent(event: VisitEvent, fix?: {lat:number;lng:numb
   }
   await db.runAsync("INSERT OR IGNORE INTO cs_outbox(event_id,owner,token,payload) VALUES(?,?,?,?)",event.event_id,state.owner,event.source==="simulated"?null:state.token,JSON.stringify(event));
   const logs=await read<TrackingLog[]>("cs:logs",[],db);logs.push({at:event.observed_at,kind:event.kind,source:event.source,reason,place_id:place.id});
-  await write("cs:logs",logs.slice(-100),db);await write("cs:tracking",{...state,[key]:candidate},db);
+  await write("cs:logs",logs.slice(-100),db);await write("cs:tracking",{...state,[key]:candidate},db);if(event.source==='geofence')await write('cs:last_callback',event.observed_at,db);
  });
  if(startFixes)await Location.startLocationUpdatesAsync(FIX_TASK,{accuracy:Location.Accuracy.Balanced,distanceInterval:100,pausesUpdatesAutomatically:true,showsBackgroundLocationIndicator:true}).catch(()=>{});
  if(stopFixes&&await Location.hasStartedLocationUpdatesAsync(FIX_TASK))await Location.stopLocationUpdatesAsync(FIX_TASK);
@@ -86,6 +87,7 @@ export async function startTracking() {
  const device=await call<{token:string}>("cs_tracking",{action:"start",installation});
  const before=await trackingState();const state:TrackingState={owner,token:device.token,paused:false,places:snapshot.places.filter(p=>p.enabled),candidate:null,simulated:before.simulated,outside:[],epoch:before.epoch};
  await write("cs:tracking",state);
+ await write('cs:started_at',new Date().toISOString());
  try{await Location.startGeofencingAsync(TASK,state.places.map(p=>({identifier:p.id,latitude:p.lat,longitude:p.lng,radius:p.radius_m,notifyOnEnter:true,notifyOnExit:true})));}
  catch(e){await stopTracking();throw e;}
  if((await trackingState()).epoch!==state.epoch)await Location.stopGeofencingAsync(TASK);
@@ -105,4 +107,18 @@ export async function simulate(kind: "ENTER"|"EXIT"|"LATER"|"DRIVE",place:Place,
  if(kind==="DRIVE"){await send("ENTER",now);await send("EXIT",now+120000);}
  else if(kind==="ENTER")await send("ENTER",now);
  else{current=await trackingState();const start=current.simulated?Date.parse(current.simulated.entered_at):now;await send("EXIT",kind==="LATER"?start+2400000:now);}
+}
+let warningDay='';
+export async function trackingNotice(snapshot:Snapshot){
+ const state=await trackingState();const permission=await Location.getBackgroundPermissionsAsync();
+ if(permission.status!=='granted')return 'Sessions only count while the app is open — turn on Always in Settings.';
+ if(!await Location.hasServicesEnabledAsync())return 'Location is turned off. Open Settings to count your sessions.';
+ if(state.paused)return 'Automatic tracking is paused. Tap to manage.';
+ const now=new Date();const day=new Intl.DateTimeFormat('en-CA',{timeZone:snapshot.profile.tz}).format(now);const hour=Number(new Intl.DateTimeFormat('en-US',{timeZone:snapshot.profile.tz,hour:'numeric',hourCycle:'h23'}).format(now));
+ const last=await read('cs:last_fix',await read('cs:started_at',now.toISOString()));
+ if(hour>=7&&hour<23&&now.getTime()-Date.parse(last)>6*3600000){
+  if(warningDay===day)return 'Tracking may be off. Tap to check your location settings.';
+  if(await read('cs:tracking_warning_day','')!==day){warningDay=day;await write('cs:tracking_warning_day',day);return 'Tracking may be off. Tap to check your location settings.';}
+ }
+ return '';
 }

@@ -14,7 +14,7 @@ create function classstreak.friends(a uuid,b uuid) returns boolean language sql 
  select exists(select 1 from classstreak.friendships where user_a=least(a,b) and user_b=greatest(a,b) and status='accepted')
 $$;
 create function classstreak.can_see_session(viewer uuid,sid uuid) returns boolean language sql stable security definer set search_path='' as $$
- select exists(select 1 from classstreak.sessions s join classstreak.users u on u.id=s.user_id where s.id=sid and s.removed_at is null and (
+ select exists(select 1 from classstreak.sessions s join classstreak.users u on u.id=s.user_id where s.id=sid and s.removed_at is null and (s.source='manual' or s.duration_sec>=(select a.min_minutes*60 from classstreak.activities a where a.key=s.activity_key)) and (
   s.user_id=viewer or (exists(select 1 from classstreak.friendships f where f.user_a=least(viewer,u.id) and f.user_b=greatest(viewer,u.id) and f.status='accepted' and s.day_key>=(f.accepted_at at time zone u.tz)::date)
   and (s.source in ('geofence','manual') or (u.is_demo and u.demo_owner=viewer) or u.share_simulated))
  ))
@@ -40,7 +40,7 @@ declare w date;current_week date;z text;target integer;n integer;result integer:
  for i in 0..520 loop
   select goal into target from classstreak.week_goals where user_id=peer and week_key<=w order by week_key desc limit 1;
   if target is null then exit;end if;
-  select count(distinct(day_key,activity_key)) into n from classstreak.sessions where user_id=peer and week_key=w and removed_at is null and (source in('geofence','manual') or sim);
+  select count(distinct(day_key,activity_key)) into n from classstreak.sessions where user_id=peer and week_key=w and removed_at is null and (source='manual' or duration_sec>=(select a.min_minutes*60 from classstreak.activities a where a.key=activity_key)) and (source in('geofence','manual') or sim);
   if target>0 and n>=target then result:=result+1;elsif w<current_week then exit;end if;w:=w-7;
  end loop;return result;
 end $$;

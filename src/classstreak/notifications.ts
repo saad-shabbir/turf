@@ -4,6 +4,7 @@ import {read,write} from "../db/local";
 import {getSnapshot} from "./api";
 import type {Snapshot} from "./model";
 import {quietUntil,reminderPlan} from "./reminder-plan";
+import {track} from './analytics';
 Notifications.setNotificationHandler({handleNotification:async()=>({shouldShowBanner:true,shouldShowList:true,shouldPlaySound:false,shouldSetBadge:false})});
 export async function enableNotifications(){return (await Notifications.requestPermissionsAsync()).granted;}
 export async function notifySession(ids:string[]){
@@ -20,7 +21,7 @@ export async function testReminder(){
  if(!await enableNotifications())throw new Error("Enable notifications in iPhone Settings to see reminders.");
  await Notifications.scheduleNotificationAsync({content:{title:"ClassStreak",body:"Your next session counts. This is a test reminder.",data:{pane:"home"}},trigger:{type:Notifications.SchedulableTriggerInputTypes.TIME_INTERVAL,seconds:3}});
 }
-export const notificationResponse=(handle:(pane:string)=>void)=>Notifications.addNotificationResponseReceivedListener(r=>{const pane=r.notification.request.content.data?.pane;if(typeof pane==="string")handle(pane);});
+export const notificationResponse=(handle:(pane:string)=>void)=>Notifications.addNotificationResponseReceivedListener(r=>{const pane=r.notification.request.content.data?.pane;if(typeof pane==="string"){track('reminder_opened');handle(pane);}});
 export const clearNotifications=()=>Notifications.cancelAllScheduledNotificationsAsync();
 export async function notifyPendingVisit(eventId:string){
  if(AppState.currentState==="active")return;

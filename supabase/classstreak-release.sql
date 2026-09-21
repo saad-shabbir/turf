@@ -1,7 +1,4 @@
--- Reviewed ClassStreak migrations; apply once after inspecting the deployed schema.
 BEGIN;
-
--- 202609200001_classstreak_foundation.sql
 -- Additive transition: legacy Turf tables and Auth identities remain intact.
 create schema if not exists classstreak;
 revoke all on schema classstreak from public, anon, authenticated;
@@ -219,8 +216,6 @@ revoke all on all functions in schema classstreak from public,anon,authenticated
 revoke all on function public.cs_snapshot(),public.cs_bootstrap(jsonb),public.cs_settings(text,jsonb) from public,anon;
 grant execute on function public.cs_snapshot(),public.cs_bootstrap(jsonb),public.cs_settings(text,jsonb) to authenticated;
 
-
--- 202609200002_classstreak_detection.sql
 create table classstreak.tracking_devices (
  user_id uuid primary key references classstreak.users on delete cascade, installation_id uuid not null, token uuid not null default gen_random_uuid(),
  active boolean not null default true, started_at timestamptz not null default now(), last_seen timestamptz not null default now(), stopped_at timestamptz
@@ -365,8 +360,6 @@ revoke all on all functions in schema classstreak from public,anon,authenticated
 revoke all on function public.cs_tracking(text,uuid,uuid),public.cs_ingest(jsonb,uuid),public.cs_session(text,jsonb) from public,anon;
 grant execute on function public.cs_tracking(text,uuid,uuid),public.cs_ingest(jsonb,uuid),public.cs_session(text,jsonb) to authenticated;
 
-
--- 202609200003_classstreak_progress.sql
 -- Weekly targets are immutable snapshots; a pending zone applies at the old zone's Monday.
 create table classstreak.timezone_changes(user_id uuid primary key references classstreak.users on delete cascade,tz text not null,effective_at timestamptz not null);
 alter table classstreak.timezone_changes enable row level security;
@@ -486,8 +479,6 @@ revoke all on all functions in schema classstreak from public,anon,authenticated
 revoke all on function public.cs_rollup(timestamptz),public.cs_seed_demo(boolean,jsonb) from public,anon;
 grant execute on function public.cs_rollup(timestamptz),public.cs_seed_demo(boolean,jsonb) to authenticated;
 
-
--- 202609200004_classstreak_friends.sql
 create table classstreak.secrets(key text primary key,value bytea not null);
 insert into classstreak.secrets values('phone',extensions.gen_random_bytes(32));
 create table classstreak.rate_limits(user_id uuid references classstreak.users on delete cascade,kind text,bucket date,n integer not null,primary key(user_id,kind,bucket));
@@ -504,7 +495,7 @@ create function classstreak.friends(a uuid,b uuid) returns boolean language sql 
  select exists(select 1 from classstreak.friendships where user_a=least(a,b) and user_b=greatest(a,b) and status='accepted')
 $$;
 create function classstreak.can_see_session(viewer uuid,sid uuid) returns boolean language sql stable security definer set search_path='' as $$
- select exists(select 1 from classstreak.sessions s join classstreak.users u on u.id=s.user_id where s.id=sid and s.removed_at is null and (
+ select exists(select 1 from classstreak.sessions s join classstreak.users u on u.id=s.user_id where s.id=sid and s.removed_at is null and (s.source='manual' or s.duration_sec>=(select a.min_minutes*60 from classstreak.activities a where a.key=s.activity_key)) and (
   s.user_id=viewer or (exists(select 1 from classstreak.friendships f where f.user_a=least(viewer,u.id) and f.user_b=greatest(viewer,u.id) and f.status='accepted' and s.day_key>=(f.accepted_at at time zone u.tz)::date)
   and (s.source in ('geofence','manual') or (u.is_demo and u.demo_owner=viewer) or u.share_simulated))
  ))
@@ -530,7 +521,7 @@ declare w date;current_week date;z text;target integer;n integer;result integer:
  for i in 0..520 loop
   select goal into target from classstreak.week_goals where user_id=peer and week_key<=w order by week_key desc limit 1;
   if target is null then exit;end if;
-  select count(distinct(day_key,activity_key)) into n from classstreak.sessions where user_id=peer and week_key=w and removed_at is null and (source in('geofence','manual') or sim);
+  select count(distinct(day_key,activity_key)) into n from classstreak.sessions where user_id=peer and week_key=w and removed_at is null and (source='manual' or duration_sec>=(select a.min_minutes*60 from classstreak.activities a where a.key=activity_key)) and (source in('geofence','manual') or sim);
   if target>0 and n>=target then result:=result+1;elsif w<current_week then exit;end if;w:=w-7;
  end loop;return result;
 end $$;
@@ -664,8 +655,6 @@ revoke all on all functions in schema classstreak from public,anon,authenticated
 revoke all on function public.cs_snapshot(),public.cs_friend_feed(),public.cs_social(text,jsonb),public.cs_contacts(text,jsonb,text) from public,anon;
 grant execute on function public.cs_snapshot(),public.cs_friend_feed(),public.cs_social(text,jsonb),public.cs_contacts(text,jsonb,text) to authenticated;
 
-
--- 202609200005_classstreak_photos.sql
 create function public.cs_can_write_photo(path text) returns boolean language sql stable security definer set search_path='' as $$
  select auth.uid() is not null and split_part(path,'/',1)=auth.uid()::text and path ~ '^[0-9a-f-]{36}/[0-9a-f-]{36}/[0-9a-f-]{36}\.jpg$'
  and exists(select 1 from classstreak.sessions s where s.id::text=split_part(path,'/',2) and s.user_id=classstreak.me() and s.removed_at is null)
@@ -695,12 +684,10 @@ end $$;
 revoke all on function public.cs_can_read_photo(text),public.cs_can_write_photo(text),public.cs_attach_photo(uuid,text,text) from public,anon;
 grant execute on function public.cs_can_read_photo(text),public.cs_can_write_photo(text),public.cs_attach_photo(uuid,text,text) to authenticated;
 
-
--- 202609200006_classstreak_studios.sql
 create table classstreak.studio_links(id uuid primary key default gen_random_uuid(),venue_id uuid not null references classstreak.venues,created_by uuid references classstreak.users on delete cascade,activity_key text references classstreak.activities,radius_m integer not null,created_at timestamptz not null default now());
 alter table classstreak.studio_links enable row level security;
 create function public.cs_venue_board() returns table(venue_id uuid,row_id text,name text,weekly_count bigint,is_me boolean) language sql stable security definer set search_path='' as $$
- with real_sessions as(select s.*,row_number() over(partition by user_id,day_key,activity_key order by started_at,id) as ordinal from classstreak.sessions s where s.removed_at is null and s.source in('geofence','manual'))
+ with real_sessions as(select s.*,row_number() over(partition by user_id,day_key,activity_key order by started_at,id) as ordinal from classstreak.sessions s where s.removed_at is null and (s.source='manual' or s.duration_sec>=(select a.min_minutes*60 from classstreak.activities a where a.key=s.activity_key)) and s.source in('geofence','manual'))
  select s.venue_id,md5(s.venue_id::text||u.id::text),u.first_name||case when u.last_name='' then '' else ' '||left(u.last_name,1)||'.' end,count(*),u.id=classstreak.me()
  from real_sessions s join classstreak.users u on u.id=s.user_id where s.ordinal=1 and u.show_on_board and not u.is_demo and s.week_key=classstreak.monday(now(),u.tz) and s.venue_id is not null
  group by s.venue_id,u.id order by count(*) desc,u.first_name
@@ -712,7 +699,7 @@ declare u uuid:=classstreak.me();n integer;regulars integer;name text;next_miles
  select v.name into name from classstreak.venues v where v.id=venue_id;if name is null then raise exception 'STUDIO_NOT_FOUND';end if;
  select count(*) into n from classstreak.sessions s where s.user_id=u and s.venue_id=cs_studio.venue_id and s.counted and s.removed_at is null;
  select min(x) into next_milestone from unnest(array[1,10,25,50,100,250]) x where x>n;
- with real_visits as(select s.*,row_number() over(partition by user_id,day_key,activity_key order by started_at,id) ordinal from classstreak.sessions s where s.source in('geofence','manual') and s.removed_at is null and s.started_at>=now()-interval '30 days')
+ with real_visits as(select s.*,row_number() over(partition by user_id,day_key,activity_key order by started_at,id) ordinal from classstreak.sessions s where s.source in('geofence','manual') and s.removed_at is null and (s.source='manual' or s.duration_sec>=(select a.min_minutes*60 from classstreak.activities a where a.key=s.activity_key)) and s.started_at>=now()-interval '30 days')
  select count(*) into regulars from(select s.user_id from real_visits s join classstreak.users p on p.id=s.user_id where s.venue_id=cs_studio.venue_id and s.ordinal=1 and p.show_on_board and not p.is_demo group by s.user_id having count(*)>=3) q;
  return jsonb_build_object('venue_id',venue_id,'name',name,'visits',n,'next_milestone',coalesce(next_milestone,500),'regulars',regulars,
  'sample_visits',exists(select 1 from classstreak.sessions where user_id=u and sessions.venue_id=cs_studio.venue_id and counted and removed_at is null and source in('seed','simulated')),
@@ -733,8 +720,6 @@ revoke all on function public.cs_venue_board(),public.cs_studio(uuid),public.cs_
 grant execute on function public.cs_venue_board(),public.cs_studio(uuid),public.cs_share_studio(uuid),public.cs_studio_preview(uuid) to authenticated;
 grant execute on function public.cs_studio_preview(uuid) to anon;
 
-
--- 202609200007_classstreak_health_and_deletion.sql
 alter table classstreak.users add column deletion_requested boolean not null default false;
 create or replace function classstreak.me() returns uuid language plpgsql stable security definer set search_path='' as $$
 declare u uuid;deleting boolean;begin
@@ -770,5 +755,29 @@ end $$;
 revoke all on all functions in schema classstreak from public,anon,authenticated;
 revoke all on function public.cs_health(jsonb),public.cs_prepare_delete() from public,anon;
 grant execute on function public.cs_health(jsonb),public.cs_prepare_delete() to authenticated;
+
+create function classstreak.achievements(viewer uuid) returns jsonb language sql stable security definer set search_path='' as $$
+ with eligible as (
+  select s.*,row_number() over(partition by s.user_id,s.day_key,s.activity_key order by s.started_at,s.id) as daily_order
+  from classstreak.sessions s join classstreak.users u on u.id=s.user_id join classstreak.activities a on a.key=s.activity_key
+  where s.removed_at is null and s.started_at<=now() and (s.source='manual' or s.duration_sec>=a.min_minutes*60)
+   and (u.id=viewer or classstreak.friends(viewer,u.id))
+   and (u.id=viewer or s.source in('geofence','manual') or u.share_simulated or (u.is_demo and u.demo_owner=viewer))
+ ), numbered as (
+  select e.*,row_number() over(partition by user_id order by started_at,id) as milestone from eligible e where daily_order=1
+ )
+ select coalesce(jsonb_agg(item order by stamp desc),'[]') from (
+  select n.started_at as stamp,jsonb_build_object('id',n.id,'user_id',n.user_id,'first_name',u.first_name,'count',n.milestone,'source',n.source) as item
+  from numbered n join classstreak.users u on u.id=n.user_id
+  where n.milestone in(1,10,25,50,100,250) and n.started_at>now()-interval '90 days' and classstreak.can_see_session(viewer,n.id)
+  order by n.started_at desc limit 30
+ ) q
+$$;
+create or replace function public.cs_snapshot() returns jsonb language plpgsql security definer set search_path='' as $$
+declare u uuid:=classstreak.me();result jsonb;begin
+ result:=public.cs_snapshot_base();
+ return result||jsonb_build_object('friends',classstreak.friend_list(u),'feed',coalesce((select jsonb_agg(to_jsonb(f)) from public.friend_feed f),'[]'),'achievements',classstreak.achievements(u));
+end $$;
+revoke all on all functions in schema classstreak from public,anon,authenticated;
 
 COMMIT;
