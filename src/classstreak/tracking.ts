@@ -5,6 +5,7 @@ import { authenticatedOwner } from "../auth/client";
 import { call, getSnapshot } from "./api";
 import { activity, type Place, type Source } from "./model";
 import { evaluateVisit, distanceMeters, type Candidate, type Fix } from "./engine";
+import {notifySession} from "./notifications";
 export const TASK = "TURF_GEOFENCE_V1";
 export const FIX_TASK = "CLASSSTREAK_FIXES_V1";
 type TrackingState = { owner: string | null; token: string | null; paused: boolean; places: Place[]; candidate: Candidate | null; simulated: Candidate | null; outside: string[]; epoch: number };
@@ -22,10 +23,10 @@ async function syncWork() {
  for(let batch=0;batch<10;batch++){
   const rows=await (await database()).getAllAsync<{event_id:string;token:string|null;payload:string}>("SELECT event_id,token,payload FROM cs_outbox WHERE owner=? ORDER BY seq LIMIT 40",owner);
   if(!rows.length)return;
-  const token=rows[0]!.token;const group=rows.filter(r=>r.token===token);
+  const token=rows[0]!.token;const boundary=rows.findIndex(r=>r.token!==token);const group=boundary<0?rows:rows.slice(0,boundary);
   const result=await call<{accepted:string[];created:string[]}>("cs_ingest",{events:group.map(r=>JSON.parse(r.payload) as VisitEvent),capture_token:token});
   await transaction(async db=>{const state=await read("cs:tracking",initial,db);if(state.owner!==owner)return;for(const id of result.accepted)await db.runAsync("DELETE FROM cs_outbox WHERE owner=? AND event_id=?",owner,id);await write("cs:last_sync",new Date().toISOString(),db);});
-  if(result.created.length&&notifying)await notifying(result.created);
+  if(result.created.length){await notifySession(result.created).catch(()=>{});if(notifying)await notifying(result.created);}
  }
 }
 export async function receiveEvent(event: VisitEvent, fix?: {lat:number;lng:number}) {
@@ -77,7 +78,8 @@ export async function stopTracking() {
 export async function startTracking() {
  const foreground=await Location.getForegroundPermissionsAsync(),background=await Location.getBackgroundPermissionsAsync();
  if(foreground.status!=="granted"||background.status!=="granted"||!await Location.hasServicesEnabledAsync())throw new Error("PERMISSION_REQUIRED");
- await syncVisits().catch(()=>{});await stopTracking();
+ // Do not revoke the current capture token while its offline evidence is still queued.
+ await syncVisits();await stopTracking();
  const owner=await authenticatedOwner();const snapshot=await getSnapshot();
  let installation=await read<string|null>("installation",null);if(!installation){installation=Crypto.randomUUID();await write("installation",installation);}
  const device=await call<{token:string}>("cs_tracking",{action:"start",installation});

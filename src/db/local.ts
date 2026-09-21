@@ -269,6 +269,7 @@ export async function purge() {
   await transaction(async (db) => {
     const epoch = 1 + (await read("epoch", 0, db));
     const authEpoch = 1 + (await read("auth_epoch", 0, db));
+    if (await db.getFirstAsync("SELECT name FROM sqlite_master WHERE type='table' AND name='cs_outbox'")) await db.execAsync("DELETE FROM cs_outbox");
     await db.execAsync(
       "DELETE FROM outbox; DELETE FROM closures; DELETE FROM kv;",
     );
