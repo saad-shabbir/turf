@@ -16,6 +16,7 @@ export const configured =
   /^https:\/\/[a-z0-9-]+\.supabase\.co$/.test(url) &&
   /^sb_publishable_[A-Za-z0-9_-]+$/.test(key);
 let client: SupabaseClient | undefined;
+export function resetClientAfterStorageRecovery() { client = undefined; }
 export function backend() {
   if (!configured) throw new Error("BACKEND_NOT_CONFIGURED");
   client ??= createClient(url, key, {

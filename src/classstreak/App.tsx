@@ -6,8 +6,9 @@ import { Fraunces_600SemiBold } from "@expo-google-fonts/fraunces";
 import { Manrope_400Regular, Manrope_600SemiBold, Manrope_700Bold, Manrope_800ExtraBold } from "@expo-google-fonts/manrope";
 import * as Location from "expo-location";
 import * as Linking from "expo-linking";
-import { backend, configured } from "../auth/client";
-import { purge, read, write } from "../db/local";
+import { backend, configured, resetClientAfterStorageRecovery } from "../auth/client";
+import { purge, read, write, recoverUnreadableStorage } from "../db/local";
+import { checkNativeEncryption } from "../db/storage-check";
 import { call, finishOnboarding, getSnapshot, resetEmail, saveSettings, signIn, signUp } from "./api";
 import { newDraft, safeMessage, type Draft, type Snapshot,type Place } from "./model";
 import { Button, Card, Input, Logo, Screen, Theme, themes, Txt } from "./ui";
@@ -15,7 +16,7 @@ import { Onboarding } from "./Onboarding";
 import { PlacesPicker } from "./PlacesPicker";
 import {Product} from "./Product";
 import {Debug} from "./Debug";
-import {onSessionsCreated,reconcileTracking,startTracking,stopTracking,syncVisits,trackingState,trackingNotice} from "./tracking";
+import {onSessionsCreated,reconcileTracking,startTracking,stopTracking,syncVisits,trackingState,trackingNotice,TASK,FIX_TASK} from "./tracking";
 import {announceMilestones,clearNotifications,enableNotifications,notificationResponse,scheduleReminders,testReminder} from "./notifications";
 import type {Action} from "./SessionScreens";
 import {Friends,AddFriends} from "./Friends";
@@ -177,7 +178,19 @@ export default function ClassStreakApp() {
     <Pressable onPress={()=>setPane("privacy")}><Txt size={11} muted style={{ textAlign: "center" }}>By continuing you agree to the Terms and Privacy Policy.</Txt></Pressable>
   </View>;
   return <Theme name={snapshot?.profile.theme ?? draft.theme}><SafeAreaView style={{ flex: 1,backgroundColor:themes[snapshot?.profile.theme??draft.theme].paper }} edges={["top", "bottom"]}>
-    {!!message && <Card style={{ borderRadius: 0, padding: 10 }}><Pressable accessibilityLabel="Dismiss message" onPress={() => setMessage("")}><Txt size={12}>{message}</Txt></Pressable></Card>}
+    {!!message && <Card style={{ borderRadius: 0, padding: 10 }}><Pressable accessibilityLabel="Dismiss message" onPress={() => setMessage("")}><Txt size={12}>{message}</Txt></Pressable>
+      {message.includes("code READ:KEY_MISMATCH") && <Button title={busy?"Please wait…":"Recover local storage"} disabled={busy} onPress={()=>Alert.alert("Start with fresh local storage?","Your old encrypted files will be kept on this iPhone, but anything that never synced will not appear in the fresh copy. Synced account data stays on the server. You will need to sign in again.",[{text:"Cancel",style:"cancel"},{text:"Recover",onPress:()=>run(async()=>{
+        // Stop native capture without trying to write to the unreadable database.
+        if(await Location.hasStartedGeofencingAsync(TASK))await Location.stopGeofencingAsync(TASK);
+        if(await Location.hasStartedLocationUpdatesAsync(FIX_TASK))await Location.stopLocationUpdatesAsync(FIX_TASK);
+        await clearNotifications();
+        try { await checkNativeEncryption(); } catch { throw new Error("Encryption check failed. Recovery was stopped; your original data is unchanged."); }
+        authEpoch.current++;
+        await recoverUnreadableStorage();resetClientAfterStorageRecovery();
+        setSnapshot(null);setSignedIn(false);setAuthId(null);setPassword("");setDraft(newDraft());setPane("home");setMode("signin");
+        setMessage("Local storage is ready. Sign in to load your synced account data. The old encrypted files have been kept.");
+      })}])}/>}
+    </Card>}
     {!ready || !fontsLoaded ? <Screen><Logo /><Txt muted>Opening your streak…</Txt></Screen> : pane==="privacy"&&!snapshot?<Screen>{extra("privacy")}<Button title="Back" onPress={()=>setPane("home")}/></Screen>:mode !== "onboarding" ? <Screen><Logo /><Txt serif size={35}>{mode === "signin" ? "Welcome back." : mode === "forgot" ? "Forgot password?" : "Choose a new password."}</Txt>
       {mode !== "reset" && <Input label="Email" value={email} onChange={setEmail} keyboard="email-address" />}
       {mode !== "forgot" && <Input label="Password" value={password} onChange={setPassword} secure />}

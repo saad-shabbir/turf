@@ -10,6 +10,12 @@ import {
 } from "../domain/model";
 
 let opening: Promise<SQLite.SQLiteDatabase> | undefined;
+let recovering = false;
+async function databaseName() {
+  const selected = await SecureStore.getItemAsync("turf.db.active").catch(e => { throw storageError("KEY_READ", e); });
+  if (selected && !/^turf-recovery-[a-f0-9-]{36}\.db$/.test(selected)) throw storageError("KEY_FORMAT");
+  return selected ?? "turf.db";
+}
 // Separate SQLite connection per transaction: unlike withExclusiveTransactionAsync,
 // apply the cipher key to EACH connection before BEGIN. SQLite arbitrates writers
 // across independent native task/UI runtimes. No UI state or memory-only lock.
@@ -32,9 +38,9 @@ async function key() {
   cipher = generated;
   return generated;
 }
-async function connection() {
+async function connection(name?: string) {
   const k = await key();
-  const db = await SQLite.openDatabaseAsync("turf.db", {
+  const db = await SQLite.openDatabaseAsync(name ?? await databaseName(), {
     useNewConnection: true,
   }).catch(e => { throw storageError("OPEN", e); });
   let stage: StorageStage = "UNLOCK";
@@ -56,9 +62,7 @@ async function connection() {
     throw storageError(stage, e);
   }
 }
-export function database() {
-  opening ??= (async () => {
-    const db = await connection();
+async function initialize(db: SQLite.SQLiteDatabase) {
     await db.execAsync(`PRAGMA journal_mode=WAL; PRAGMA secure_delete=ON;
       CREATE TABLE IF NOT EXISTS kv (key TEXT PRIMARY KEY,value TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS outbox (event_id TEXT PRIMARY KEY,owner TEXT NOT NULL,platform_id TEXT NOT NULL,seq INTEGER NOT NULL,payload TEXT NOT NULL,status TEXT NOT NULL DEFAULT 'queued',error TEXT,created_at TEXT NOT NULL,UNIQUE(owner,platform_id));
@@ -68,13 +72,49 @@ export function database() {
         await db.closeAsync().catch(() => {});
         throw storageError("SCHEMA", e);
       });
+  return db;
+}
+export function database() {
+  if (recovering) return Promise.reject(new Error("Storage recovery is in progress. Please wait."));
+  opening ??= (async () => {
     // A new DB with a leftover key starts empty; no session is reconstructed from Keychain.
-    return db;
+    return initialize(await connection());
   })().catch((e) => {
     opening = undefined;
     throw e;
   });
   return opening;
+}
+// Called only after the user confirms recovery. Keep the original database and
+// all its journal files untouched. A Keychain pointer is switched only after
+// a separate encrypted database has been created and successfully reopened.
+export async function recoverUnreadableStorage() {
+  if (recovering) throw new Error("Storage recovery is already in progress.");
+  try {
+    await database();
+    throw new Error("Saved data is readable. Recovery is not needed.");
+  } catch (e) {
+    if (!(e instanceof Error && e.message === "STORAGE_ERROR:READ:KEY_MISMATCH")) throw e;
+  }
+  if (recovering) throw new Error("Storage recovery is already in progress.");
+  recovering = true;
+  try {
+    const previous = await databaseName();
+    const name = `turf-recovery-${Crypto.randomUUID()}.db`;
+    const db = await initialize(await connection(name));
+    try {
+      await write("storage_previous_database", previous, db);
+      // Old auth clients must not restore their cached session into fresh storage.
+      await write("auth_epoch", Date.now(), db);
+      await db.execAsync("PRAGMA wal_checkpoint(TRUNCATE)");
+    } finally { await db.closeAsync(); }
+    const verified = await connection(name);
+    await verified.closeAsync();
+    await SecureStore.setItemAsync("turf.db.active", name, {
+      keychainAccessible: SecureStore.AFTER_FIRST_UNLOCK,
+    }).catch(e => { throw storageError("KEY_SAVE", e); });
+    opening = undefined;
+  } finally { recovering = false; }
 }
 export async function transaction<T>(
   work: (db: SQLite.SQLiteDatabase) => Promise<T>,
