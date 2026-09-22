@@ -11,6 +11,8 @@ const folder = mkdtempSync(join(tmpdir(), "turf-unit-"));
 const secure = new Map();
 export const native = {
   failStorage: false,
+  missingCipher: false,
+  unreadableDatabase: false,
   keyOptions: null,
   refreshes: 0,
   networkFails: false,
@@ -47,7 +49,9 @@ globalThis.__turfMocks = {
         execAsync: async (sql) => db.exec(sql.replace(/PRAGMA key[^;]*;/, "")),
         getFirstAsync: async (sql, ...args) =>
           sql === "PRAGMA cipher_version"
-            ? { cipher_version: "UNIT MOCK" }
+            ? (native.missingCipher ? null : { cipher_version: "UNIT MOCK" })
+            : sql === "SELECT count(*) FROM sqlite_master" && native.unreadableDatabase
+              ? (() => { throw new Error("file is not a database"); })()
             : (db.prepare(sql).get(...args) ?? null),
         getAllAsync: async (sql, ...args) => db.prepare(sql).all(...args),
         runAsync: async (sql, ...args) => db.prepare(sql).run(...args),
