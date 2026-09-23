@@ -5,13 +5,13 @@ import { authenticatedOwner } from "../auth/client";
 import { call, getSnapshot } from "./api";
 import { activity, type Place, type Source,type Snapshot } from "./model";
 import { evaluateVisit, distanceMeters,retainedVisitFixes, type Candidate, type Fix } from "./engine";
-import {notifyPendingVisit,notifySession} from "./notifications";
+import {notifyPendingVisit,notifySession,notifyArrival} from "./notifications";
 import {track} from './analytics';
 export const TASK = "TURF_GEOFENCE_V1";
 export const FIX_TASK = "CLASSSTREAK_FIXES_V1";
 type TrackingState = { owner: string | null; token: string | null; paused: boolean; places: Place[]; candidate: Candidate | null; simulated: Candidate | null; outside: string[]; epoch: number };
 const initial: TrackingState = { owner: null, token: null, paused: true, places: [], candidate: null, simulated: null, outside: [], epoch: 0 };
-export type VisitEvent = { event_id: string; place_id: string; kind: "ENTER" | "EXIT" | "TIMEOUT"; observed_at: string; source: "geofence" | "simulated"; median_speed?: number };
+export type VisitEvent = { event_id: string; place_id: string; kind: "ENTER" | "EXIT" | "TIMEOUT" | "SELECT" | "RESTART" | "STOP"; visit_id?: string; activity_key?: string; observed_at: string; source: "geofence" | "simulated"; median_speed?: number };
 export type TrackingLog = { at: string; kind: string; source: Source; reason: string; place_id?: string };
 export const trackingState = () => read("cs:tracking", initial);
 let notifying: ((ids: string[]) => Promise<void>) | undefined;
@@ -31,7 +31,7 @@ async function syncWork() {
  }
 }
 export async function receiveEvent(event: VisitEvent, fix?: {lat:number;lng:number}) {
- await ensureQueue();let startFixes=false,stopFixes=false,qualified=false;
+ await ensureQueue();let startFixes=false,stopFixes=false,qualified=false;let arrival:Place|undefined;
  await transaction(async db=>{
   const state=await read("cs:tracking",initial,db);
   if(!state.owner|| (event.source==="geofence"&&state.paused))return;
@@ -40,10 +40,16 @@ export async function receiveEvent(event: VisitEvent, fix?: {lat:number;lng:numb
   if(event.kind==="ENTER"&&fix){const nearest=[...state.places].filter(p=>p.enabled&&distanceMeters(fix,p)<=p.radius_m).sort((a,b)=>distanceMeters(fix,a)-distanceMeters(fix,b))[0];if(nearest)place=nearest;event={...event,place_id:place.id};}
   const key=event.source==="simulated"?"simulated":"candidate";
   let candidate=state[key];let reason="";
-  if(event.kind==="ENTER"){
+  if(["SELECT","RESTART","STOP"].includes(event.kind)){
+   if(event.source!=="geofence"||!candidate||candidate.visit_id!==event.visit_id||candidate.place_id!==place.id)return;
+   if(Date.parse(event.observed_at)<Date.parse(candidate.entered_at))throw new Error("Your phone clock changed. Please try again.");
+   if(event.kind==="SELECT"){const chosen=activity(event.activity_key??"");if(chosen.key!==event.activity_key)throw new Error("Choose a workout type.");candidate={...candidate,activity_key:chosen.key,workout_label:chosen.label};}
+   else if(event.kind==="RESTART"){candidate={...candidate,entered_at:event.observed_at};await write("cs:fixes",[],db);}
+   else {candidate=null;stopFixes=true;qualified=true;state.outside=state.outside.filter(id=>id!==place.id);await write("cs:workout_saved",event.event_id,db);}
+  }else if(event.kind==="ENTER"){
    if(candidate)reason="A visit is already open";
    else if(event.source==="geofence"&&!state.outside.includes(place.id))reason="Initial presence ignored; leave once to establish an arrival";
-   else {candidate={place_id:place.id,activity_key:place.activity_key,workout_label:place.last_workout_label??activity(place.activity_key).label,entered_at:event.observed_at,source:event.source,lat:place.lat,lng:place.lng,radius_m:place.radius_m};reason="Visit opened";startFixes=event.source==="geofence";}
+   else {candidate={visit_id:event.event_id,place_id:place.id,activity_key:place.activity_key,workout_label:place.last_workout_label??activity(place.activity_key).label,entered_at:event.observed_at,source:event.source,lat:place.lat,lng:place.lng,radius_m:place.radius_m};reason="Visit opened";startFixes=event.source==="geofence";if(startFixes){arrival=place;state.outside=state.outside.filter(id=>id!==place.id);await write("cs:fixes",[],db);}}
   }else{
    if(event.source==="geofence"&&!state.outside.includes(place.id))state.outside.push(place.id);
    if(candidate?.place_id===place.id){
@@ -58,6 +64,7 @@ export async function receiveEvent(event: VisitEvent, fix?: {lat:number;lng:numb
   const logs=await read<TrackingLog[]>("cs:logs",[],db);logs.push({at:event.observed_at,kind:event.kind,source:event.source,reason,place_id:place.id});
   await write("cs:logs",logs.slice(-100),db);await write("cs:tracking",{...state,[key]:candidate},db);if(event.source==='geofence')await write('cs:last_callback',event.observed_at,db);
  });
+ if(arrival)await notifyArrival(arrival.name,event.event_id).catch(()=>{});
  if(startFixes)await Location.startLocationUpdatesAsync(FIX_TASK,{accuracy:Location.Accuracy.Balanced,distanceInterval:100,pausesUpdatesAutomatically:true,showsBackgroundLocationIndicator:true}).catch(()=>{});
  if(stopFixes&&await Location.hasStartedLocationUpdatesAsync(FIX_TASK))await Location.stopLocationUpdatesAsync(FIX_TASK);
  await syncVisits().catch(async()=>{await write("cs:sync_error","Your visits are saved on this phone and will retry.");if(qualified)await notifyPendingVisit(event.event_id).catch(()=>{});});
@@ -121,4 +128,10 @@ export async function trackingNotice(snapshot:Snapshot){
   if(await read('cs:tracking_warning_day','')!==day){warningDay=day;await write('cs:tracking_warning_day',day);return 'Tracking may be off. Tap to check your location settings.';}
  }
  return '';
+}
+
+export async function controlWorkout(kind:"SELECT"|"RESTART"|"STOP",visitId:string,activityKey?:string){
+ const state=await trackingState();const c=state.candidate;
+ if(!c||c.visit_id!==visitId||state.paused)throw new Error("This workout has already ended.");
+ await receiveEvent({event_id:Crypto.randomUUID(),visit_id:visitId,place_id:c.place_id,kind,activity_key:activityKey,source:"geofence",observed_at:new Date().toISOString()});
 }

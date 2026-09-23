@@ -1,3 +1,5 @@
+import {ActiveWorkout} from "./ActiveWorkout";
+import type {Candidate} from "./engine";
 import {ActivitySchedules,CustomActivity} from "./ActivitySetup";
 import {SoftPressable,BouncePressable} from "./motion";
 import React, {useState} from "react";
@@ -6,8 +8,8 @@ import {activity,activities,fullDays,type Schedule,type Snapshot,type ThemeName}
 import {progress,dayKey} from "./engine";
 import {Avatar,Button,Card,Chart,Chip,Empty,Icon,Input,Logo,Ring,StreakFlame,Row,Screen,Txt,useTheme} from "./ui";
 import {History,ManualSession,SessionDetails,type Action} from "./SessionScreens";
-export type ProductProps={snapshot:Snapshot;pane:string;action:Action;now?:Date;tracking?:string;extra?:(pane:string)=>React.ReactNode};
-export function Product({snapshot:s,pane,action,now=new Date(),tracking,extra}:ProductProps){
+export type ProductProps={activeWorkout?:Candidate|null;busy?:boolean;snapshot:Snapshot;pane:string;action:Action;now?:Date;tracking?:string;extra?:(pane:string)=>React.ReactNode};
+export function Product({activeWorkout=null,busy=false,snapshot:s,pane,action,now=new Date(),tracking,extra}:ProductProps){
  const t=useTheme();const [selectedWeek,setSelectedWeek]=useState<string|null>(null);const p=s.profile;const stats=progress(s.sessions,s.weeks,s.goals,p.tz,now);
  const tabs=[["home","Home","home"],["studios","Studios","studio"],["post","Post","camera"],["friends","Friends","friends"],["profile","Profile","person"]];
  const root=["home","studios","friends","profile"].includes(pane);const unread=s.inbox.filter(i=>!i.read_at).length;
@@ -16,7 +18,7 @@ export function Product({snapshot:s,pane,action,now=new Date(),tracking,extra}:P
  if(pane==="home"){
   const latest=s.sessions.find(x=>!x.removed_at);const weekday=(new Date(dayKey(now,p.tz)+"T12:00:00Z").getUTCDay()+6)%7;const usual=s.usual_days.find(d=>d.weekday===weekday);
   const friends=s.friends.filter(f=>f.status==="accepted");const done=Number(friends.length>=3)+Number(s.sessions.some(x=>x.photo_url))+Number(!!latest)+Number(p.health_verify);
-  body=<><Card><Row><Ring count={stats.count} goal={stats.goal}/><View style={{flex:1}}><Txt size={12} muted>Your week</Txt><Txt serif size={27}>{stats.count} of {stats.goal}{"\n"}sessions</Txt><Txt muted size={15}>{s.goals.filter(g=>g.goal>0).map(g=>`${activity(g.activity_key).short} ${s.sessions.filter(x=>x.week_key===stats.week&&x.activity_key===g.activity_key&&x.counted&&!x.removed_at&&Date.parse(x.started_at)<=now.getTime()).length}/${g.goal}`).join(" · ")}</Txt></View></Row><View style={{alignSelf:"flex-start",marginTop:14,backgroundColor:t.paper,borderRadius:99,paddingHorizontal:13,paddingVertical:7}}><Row style={{gap:6}}><StreakFlame streak={stats.streak} size={17} color={t.accent}/><Txt bold size={13}>{stats.streak}-week streak</Txt></Row></View></Card>
+  body=<><ActiveWorkout compact candidate={activeWorkout} snapshot={s} action={action} busy={busy}/><Card><Row><Ring count={stats.count} goal={stats.goal}/><View style={{flex:1}}><Txt size={12} muted>Your week</Txt><Txt serif size={27}>{stats.count} of {stats.goal}{"\n"}sessions</Txt><Txt muted size={15}>{s.goals.filter(g=>g.goal>0).map(g=>`${activity(g.activity_key).short} ${s.sessions.filter(x=>x.week_key===stats.week&&x.activity_key===g.activity_key&&x.counted&&!x.removed_at&&Date.parse(x.started_at)<=now.getTime()).length}/${g.goal}`).join(" · ")}</Txt></View></Row><View style={{alignSelf:"flex-start",marginTop:14,backgroundColor:t.paper,borderRadius:99,paddingHorizontal:13,paddingVertical:7}}><Row style={{gap:6}}><StreakFlame streak={stats.streak} size={17} color={t.accent}/><Txt bold size={13}>{stats.streak}-week streak</Txt></Row></View></Card>
    {usual&&<Card dark><Row><View style={{backgroundColor:"#ffffff22",padding:12,borderRadius:14}}><Icon name="clock" color="#fff"/></View><View style={{flex:1}}><Txt bold size={15} style={{color:"#fff"}}>{fullDays[weekday]} is a {activity(usual.activity_key??s.goals[0]?.activity_key??"reformer").short} day</Txt><Txt size={12} style={{color:"#decbd3"}}>Usually around {usual.time_of_day==="morning"?"8 am":usual.time_of_day==="midday"?"12 pm":"6 pm"}</Txt></View></Row></Card>}
    {tracking&&<Pressable onPress={()=>tracking.includes("ettings")?action("open_settings"):navigate("account")}><Card style={{padding:12}}><Txt size={12}>{tracking}</Txt></Card></Pressable>}
    {done<4&&<><Row><Txt serif size={24} style={{flex:1}}>Keep going</Txt><Txt muted size={12}>{done} of 4 done</Txt></Row>{[

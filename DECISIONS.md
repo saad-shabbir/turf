@@ -47,3 +47,9 @@
 - Hosted migrations 009 and 010 were applied incrementally in one transaction after checking the baseline (2 Auth users, 0 ClassStreak users, 9 legacy Turf tables). Auth users remained 2; schedules RLS verified enabled. Original migrations were not replayed. Pre-update implementations remain revoked under `*_before_walkthrough`/`*_before_demo_board` names for recovery; no stored personal records were dropped.
 
 - Location sample retention now filters the candidate arrival radius before writing encrypted storage; outside, inaccurate, future-dated and expired observations are discarded. The 2-hour/300-sample bound remains.
+
+## Arrival workout controls (22 September 2026)
+- A genuine armed arrival sends a local encouragement notification; tapping opens the existing activity picker plus Custom. Initial presence is still suppressed. Notification permission is required, and iOS delivery timing is not guaranteed.
+- Active duration derives from the persisted arrival timestamp. Restart requires confirmation and moves the start to now. Stop saves locally before sync, disarms the region until EXIT, and binds all controls to the original arrival ID.
+- Short stopped workouts are saved but existing minimum-duration and daily count rules still govern goal credit. Automatic exit and the existing four-hour cap remain fallback limits.
+- Controls use the existing encrypted outbox, capture token, owner isolation and replay protection. No native dependencies, entitlements, identifiers or encryption keys changed.

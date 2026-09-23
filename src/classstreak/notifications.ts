@@ -57,3 +57,8 @@ export async function announceMilestones(snapshot:Snapshot){
  }
  return milestone;
 }
+
+export async function notifyArrival(placeName:string,visitId:string){
+ if(!(await Notifications.getPermissionsAsync()).granted)return;
+ await Notifications.scheduleNotificationAsync({identifier:"arrival:"+visitId,content:{title:"You made it!",body:`You're at ${placeName}. What are you hitting today?`,data:{pane:"active-workout",visit_id:visitId}},trigger:null});
+}

@@ -1,6 +1,6 @@
 import type { ActivityKey, Goal, Session, Source, Week } from "./model";
 export type Fix = { timestamp: number; latitude: number; longitude: number; accuracy: number | null; speed: number | null };
-export type Candidate = { place_id: string; activity_key: ActivityKey; workout_label: string; entered_at: string; source: Source; lat: number; lng: number; radius_m: number };
+export type Candidate = { visit_id?: string; place_id: string; activity_key: ActivityKey; workout_label: string; entered_at: string; source: Source; lat: number; lng: number; radius_m: number };
 export type Evaluation = { qualifies: boolean; reason: string; duration_sec: number; estimated: boolean };
 const minutes: Record<string, number> = { reformer: 35, mat: 35, hot: 35, yoga: 35, cycling: 30, barre: 35, hiit: 30, boxing: 30, gym: 25 };
 export function distanceMeters(a: {lat:number;lng:number}, b: {lat:number;lng:number}) {
