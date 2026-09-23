@@ -53,3 +53,10 @@
 - Active duration derives from the persisted arrival timestamp. Restart requires confirmation and moves the start to now. Stop saves locally before sync, disarms the region until EXIT, and binds all controls to the original arrival ID.
 - Short stopped workouts are saved but existing minimum-duration and daily count rules still govern goal credit. Automatic exit and the existing four-hour cap remain fallback limits.
 - Controls use the existing encrypted outbox, capture token, owner isolation and replay protection. No native dependencies, entitlements, identifiers or encryption keys changed.
+
+## Field-test sync and departure recovery (23 September 2026)
+- Distance-triggered GPS samples are biased toward movement and cannot veto a visit that meets its activity minimum. Remove the whole-visit speed veto on client and server; keep duration, suppression, deduplication and daily goal rules. This also covers already-queued EXIT payloads from the previous build.
+- CAPTURE_EXPIRED has several causes, not just replacement. The owner-scoped diagnostic RPC distinguishes a nonmatching setup and permanently invalid capture times from retryable future-clock/network failures.
+- Permanently invalid events stay byte-for-byte in the encrypted outbox, with owner-scoped hold markers. Valid later events can sync. Debug shows pending versus preserved counts and offers history/manual-review navigation. No token is reassigned and no unverified old event becomes an automatic verified session.
+- A user's missed workout is not claimed recovered until it appears in their history. Re-registering after upgrading first drains eligible records and preserves expired ones before establishing a new capture.
+- Applied only migration 012 after baseline inspection. Rollback: restore close_visit from migration 002; the new read-only status RPC can remain harmlessly available. Never replay the whole migration 002.

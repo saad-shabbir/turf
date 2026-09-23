@@ -6,6 +6,7 @@ import { call, getSnapshot } from "./api";
 import { activity, type Place, type Source,type Snapshot } from "./model";
 import { evaluateVisit, distanceMeters,retainedVisitFixes, type Candidate, type Fix } from "./engine";
 import {notifyPendingVisit,notifySession,notifyArrival} from "./notifications";
+import {captureHoldReason,type CaptureStatus} from "./syncRecovery";
 import {track} from './analytics';
 export const TASK = "TURF_GEOFENCE_V1";
 export const FIX_TASK = "CLASSSTREAK_FIXES_V1";
@@ -16,16 +17,28 @@ export type TrackingLog = { at: string; kind: string; source: Source; reason: st
 export const trackingState = () => read("cs:tracking", initial);
 let notifying: ((ids: string[]) => Promise<void>) | undefined;
 export function onSessionsCreated(handler: (ids: string[]) => Promise<void>) { notifying = handler; }
-async function ensureQueue() { await (await database()).execAsync("CREATE TABLE IF NOT EXISTS cs_outbox(seq INTEGER PRIMARY KEY AUTOINCREMENT,event_id TEXT UNIQUE NOT NULL,owner TEXT NOT NULL,token TEXT,payload TEXT NOT NULL);"); }
+async function ensureQueue() { await (await database()).execAsync("CREATE TABLE IF NOT EXISTS cs_outbox(seq INTEGER PRIMARY KEY AUTOINCREMENT,event_id TEXT UNIQUE NOT NULL,owner TEXT NOT NULL,token TEXT,payload TEXT NOT NULL); CREATE TABLE IF NOT EXISTS cs_outbox_holds(event_id TEXT PRIMARY KEY,owner TEXT NOT NULL,reason TEXT NOT NULL);"); }
 let syncing: Promise<void> | undefined;
-export function syncVisits() { syncing ??= syncWork().finally(() => { syncing=undefined; });return syncing; }
+export function syncVisits() { syncing ??= syncWork().catch(async error=>{await write("cs:sync_error",error instanceof Error?error.message:"NETWORK");throw error;}).finally(() => { syncing=undefined; });return syncing; }
 async function syncWork() {
  await ensureQueue();const owner=await authenticatedOwner();
  for(let batch=0;batch<10;batch++){
-  const rows=await (await database()).getAllAsync<{event_id:string;token:string|null;payload:string}>("SELECT event_id,token,payload FROM cs_outbox WHERE owner=? ORDER BY seq LIMIT 40",owner);
-  if(!rows.length)return;
+  const rows=await (await database()).getAllAsync<{event_id:string;token:string|null;payload:string}>("SELECT event_id,token,payload FROM cs_outbox WHERE owner=? AND NOT EXISTS(SELECT 1 FROM cs_outbox_holds h WHERE h.event_id=cs_outbox.event_id AND h.owner=cs_outbox.owner) ORDER BY seq LIMIT 40",owner);
+  if(!rows.length){await write("cs:sync_error","");return;}
   const token=rows[0]!.token;const boundary=rows.findIndex(r=>r.token!==token);const group=boundary<0?rows:rows.slice(0,boundary);
-  const result=await call<{accepted:string[];created:string[]}>("cs_ingest",{events:group.map(r=>JSON.parse(r.payload) as VisitEvent),capture_token:token});
+  let result:{accepted:string[];created:string[]};
+  try{result=await call("cs_ingest",{events:group.map(r=>JSON.parse(r.payload) as VisitEvent),capture_token:token});}
+  catch(error){
+   if(!(error instanceof Error)||error.message!=="CAPTURE_EXPIRED")throw error;
+   const status=await call<CaptureStatus>("cs_capture_status",{capture_token:token});
+   const held=group.map(row=>({row,reason:captureHoldReason(JSON.parse(row.payload),status)})).filter(item=>item.reason);
+   if(!held.length)throw error; // Future clocks/network errors stay retryable; no evidence is discarded.
+   await transaction(async db=>{
+    if((await read("cs:tracking",initial,db)).owner!==owner)throw new Error("AUTH_REQUIRED");
+    for(const {row,reason} of held)await db.runAsync("INSERT OR IGNORE INTO cs_outbox_holds(event_id,owner,reason) VALUES(?,?,?)",row.event_id,owner,reason);
+   });
+   continue;
+  }
   await transaction(async db=>{const state=await read("cs:tracking",initial,db);if(state.owner!==owner)return;for(const id of result.accepted)await db.runAsync("DELETE FROM cs_outbox WHERE owner=? AND event_id=?",owner,id);await write("cs:last_sync",new Date().toISOString(),db);});
   if(result.created.length){const s=await getSnapshot();for(const session of s.sessions.filter(s=>result.created.includes(s.id)))track('session_logged',{activity:session.activity_key,duration:session.duration_sec,counted:session.counted,source:session.source});await notifySession(result.created).catch(()=>{});if(notifying)await notifying(result.created);}
  }
@@ -67,7 +80,7 @@ export async function receiveEvent(event: VisitEvent, fix?: {lat:number;lng:numb
  if(arrival)await notifyArrival(arrival.name,event.event_id).catch(()=>{});
  if(startFixes)await Location.startLocationUpdatesAsync(FIX_TASK,{accuracy:Location.Accuracy.Balanced,distanceInterval:100,pausesUpdatesAutomatically:true,showsBackgroundLocationIndicator:true}).catch(()=>{});
  if(stopFixes&&await Location.hasStartedLocationUpdatesAsync(FIX_TASK))await Location.stopLocationUpdatesAsync(FIX_TASK);
- await syncVisits().catch(async()=>{await write("cs:sync_error","Your visits are saved on this phone and will retry.");if(qualified)await notifyPendingVisit(event.event_id).catch(()=>{});});
+ await syncVisits().catch(async()=>{if(qualified)await notifyPendingVisit(event.event_id).catch(()=>{});});
 }
 export async function receiveFixes(locations: Location.LocationObject[]) {
  await transaction(async db=>{const state=await read("cs:tracking",initial,db);if(state.paused||!state.candidate)return;

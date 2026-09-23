@@ -7,12 +7,12 @@ test("The pictured three-activity setup has a goal of three, including zero for 
 });
 const {evaluateVisit,progress,mondayKey}=await import("../src/classstreak/engine.ts");
 const candidate={place_id:"fixture",activity_key:"reformer",workout_label:"Reformer",entered_at:"2026-09-21T17:00:00Z",source:"simulated",lat:0,lng:0,radius_m:100};
-test("Real and simulated visit evaluation rejects drive-bys, fast movement and short stays",()=>{
+test("Real and simulated visit evaluation rejects short stays but does not mistake sparse driving samples for a whole visit",()=>{
  assert.equal(evaluateVisit(candidate,"2026-09-21T17:02:00Z").qualifies,false);
  assert.equal(evaluateVisit(candidate,"2026-09-21T17:34:59Z").qualifies,false);
  assert.equal(evaluateVisit(candidate,"2026-09-21T17:35:00Z").qualifies,true);
  const fixes=[1,2,3].map(i=>({timestamp:Date.parse(candidate.entered_at)+i*1000,latitude:0,longitude:0,accuracy:20,speed:3}));
- assert.equal(evaluateVisit(candidate,"2026-09-21T17:40:00Z",fixes).qualifies,false);
+ assert.equal(evaluateVisit(candidate,"2026-09-21T17:40:00Z",fixes).qualifies,true);
  assert.equal(evaluateVisit(candidate,"2026-09-21T17:40:00Z",fixes.map(f=>({...f,accuracy:150}))).qualifies,true);
  assert.equal(evaluateVisit(candidate,"2026-09-21T21:00:00Z",[],true).estimated,true);
 });

@@ -9,13 +9,13 @@ export function distanceMeters(a: {lat:number;lng:number}, b: {lat:number;lng:nu
 export function retainedVisitFixes(fixes:Fix[],place:{lat:number;lng:number;radius_m:number},now:number){
  return fixes.filter(f=>f.timestamp>=now-2*60*60*1000&&f.timestamp<=now&&f.accuracy!==null&&f.accuracy>=0&&f.accuracy<=100&&distanceMeters({lat:f.latitude,lng:f.longitude},place)<=place.radius_m).slice(-300);
 }
-export function evaluateVisit(candidate: Candidate, exitedAt: string, fixes: Fix[] = [], estimated = false): Evaluation {
+export function evaluateVisit(candidate: Candidate, exitedAt: string, _fixes: Fix[] = [], estimated = false): Evaluation {
  const start=Date.parse(candidate.entered_at),end=Date.parse(exitedAt),duration=Math.floor((end-start)/1000);
  if(!Number.isFinite(duration)||duration<0) return {qualifies:false,reason:"Clock moved backwards",duration_sec:0,estimated};
  if(duration<180) return {qualifies:false,reason:"Drive-by: under 3 minutes",duration_sec:duration,estimated};
  if(duration<(minutes[candidate.activity_key]??25)*60) return {qualifies:false,reason:`Under ${(minutes[candidate.activity_key]??25)} minutes`,duration_sec:duration,estimated};
- const speeds=fixes.filter(f=>f.timestamp>=start&&f.timestamp<=end&&f.accuracy!==null&&f.accuracy>=0&&f.accuracy<=100&&f.speed!==null&&f.speed>=0&&distanceMeters({lat:f.latitude,lng:f.longitude},{lat:candidate.lat,lng:candidate.lng})<=candidate.radius_m).map(f=>f.speed!).sort((a,b)=>a-b);
- if(speeds.length>=3) {const mid=Math.floor(speeds.length/2);const median=speeds.length%2?speeds[mid]!:(speeds[mid-1]!+speeds[mid]!)/2;if(median>=2)return {qualifies:false,reason:"Movement was too fast for a session",duration_sec:duration,estimated};}
+ // Movement-triggered samples overrepresent arrival/departure and cannot establish
+ // the speed of a whole workout. Duration remains the drive-by safeguard.
  return {qualifies:true,reason:estimated?"Counted · estimated departure":"Counted",duration_sec:Math.min(14400,duration),estimated};
 }
 export function dayKey(instant: string | Date, tz: string) {
