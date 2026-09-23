@@ -10,7 +10,15 @@ major_version = 17
 [auth]
 enabled = true
 site_url = "turf://"
-enable_signup = false
+enable_signup = true
 [auth.email]
-enable_signup = false
+enable_signup = true
 enable_confirmations = true
+
+# Each function verifies the user through Auth or authenticated PostgREST RPCs.
+[functions.seed_demo]
+verify_jwt = false
+[functions.rollup]
+verify_jwt = false
+[functions.delete_account]
+verify_jwt = false

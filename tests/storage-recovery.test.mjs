@@ -1,0 +1,31 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import { native } from "./native-harness.mjs";
+const local = await import("../src/db/local.ts");
+const sqlite = await import("expo-sqlite");
+const secure = await import("expo-secure-store");
+
+test("confirmed recovery retains old records and key, commits its pointer last, and starts signed out", async () => {
+  const old = await sqlite.openDatabaseAsync("turf.db");
+  await old.execAsync("CREATE TABLE original(value TEXT); INSERT INTO original VALUES ('unsynced fixture');");
+  native.unreadableNames.add("turf.db");
+  await assert.rejects(local.database(), /READ:KEY_MISMATCH/);
+  const originalKey = await secure.getItemAsync("turf.db.key");
+  native.failActivePointer = true;
+  await assert.rejects(local.recoverUnreadableStorage(), /KEY_SAVE:FAILED/);
+  assert.equal(await secure.getItemAsync("turf.db.active"), null);
+  assert.equal((await old.getFirstAsync("SELECT value FROM original")).value, "unsynced fixture");
+  native.failActivePointer = false;
+  await local.recoverUnreadableStorage();
+  assert.match(await secure.getItemAsync("turf.db.active"), /^turf-recovery-/);
+  assert.equal(await secure.getItemAsync("turf.db.key"), originalKey);
+  assert.equal((await old.getFirstAsync("SELECT value FROM original")).value, "unsynced fixture");
+  assert.equal(await local.read("storage_previous_database", null), "turf.db");
+  assert.equal(await local.authStorage.getItem("session"), null);
+  assert.equal((await local.state()).owner, null);
+  assert.ok(await local.read("auth_epoch", 0) > 0);
+  await local.transaction(async db => { await local.write("new data", "works", db); });
+  assert.equal(await local.read("new data", null), "works");
+  await assert.rejects(local.recoverUnreadableStorage(), /Recovery is not needed/);
+  await old.closeAsync();
+});

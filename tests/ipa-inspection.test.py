@@ -22,7 +22,7 @@ class InspectionTest(unittest.TestCase):
         (self.app / 'Frameworks' / 'Fixture.framework').mkdir(parents=True)
         self.plist = dict(CFBundleSupportedPlatforms=['iPhoneOS'],
                           CFBundleIdentifier='com.turf.privatealpha',
-                          CFBundleShortVersionString='1.0.0', CFBundleVersion='1',
+                          CFBundleShortVersionString='2.0.0', CFBundleVersion='2', CFBundleDisplayName='ClassStreak',
                           MinimumOSVersion='16.4', CFBundleExecutable='Turf',
                           UIBackgroundModes=['location'],
                           NSLocationWhenInUseUsageDescription='Synthetic permission',

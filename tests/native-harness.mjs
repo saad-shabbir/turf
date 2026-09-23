@@ -11,6 +11,10 @@ const folder = mkdtempSync(join(tmpdir(), "turf-unit-"));
 const secure = new Map();
 export const native = {
   failStorage: false,
+  missingCipher: false,
+  unreadableDatabase: false,
+  unreadableNames: new Set(),
+  failActivePointer: false,
   keyOptions: null,
   refreshes: 0,
   networkFails: false,
@@ -35,19 +39,22 @@ globalThis.__turfMocks = {
     AFTER_FIRST_UNLOCK: 1,
     getItemAsync: async (k) => secure.get(k) ?? null,
     setItemAsync: async (k, v, o) => {
+      if (k === "turf.db.active" && native.failActivePointer) throw new Error("Keychain write failed");
       native.keyOptions = o;
       secure.set(k, v);
     },
   },
   "expo-sqlite": {
-    openDatabaseAsync: async () => {
+    openDatabaseAsync: async (name = "turf.db") => {
       if (native.failStorage) throw new Error("STORAGE_ERROR");
-      const db = new DatabaseSync(join(folder, "test.db"));
+      const db = new DatabaseSync(join(folder, name));
       return {
         execAsync: async (sql) => db.exec(sql.replace(/PRAGMA key[^;]*;/, "")),
         getFirstAsync: async (sql, ...args) =>
           sql === "PRAGMA cipher_version"
-            ? { cipher_version: "UNIT MOCK" }
+            ? (native.missingCipher ? null : { cipher_version: "UNIT MOCK" })
+            : sql === "SELECT count(*) FROM sqlite_master" && (native.unreadableDatabase || native.unreadableNames.has(name))
+              ? (() => { throw new Error("file is not a database"); })()
             : (db.prepare(sql).get(...args) ?? null),
         getAllAsync: async (sql, ...args) => db.prepare(sql).all(...args),
         runAsync: async (sql, ...args) => db.prepare(sql).run(...args),
