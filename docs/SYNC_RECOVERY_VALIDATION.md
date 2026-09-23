@@ -7,3 +7,8 @@ Typecheck, lint and native configuration checks passed. The actual recovery card
 Hosted migration 012 applied incrementally; no Auth or workout records were deleted. No physical iPhone sync, installation, or recovery of the user's specific gym visit has yet been verified.
 
 Install over the existing app, then Debug > Re-register geofences. Check Waiting to sync and Preserved for review. Eligible events should upload; older setup evidence remains visible for manual review. Do not reinstall from scratch or clear storage to fix the queue.
+
+## Confirmed field recovery
+On September 23 the user confirmed the previously missed visit appeared after retry. Read-only hosted verification found the September 22 geofence session at 20:18:01 to 22:12:08 America/Los_Angeles, duration 6847 seconds, counted=true. This verifies that specific queued visit recovered, not that every preserved event was accepted or all future arrivals are reliable.
+
+The Debug Last sync display passed a stored string into safeMessage, which expects an Error; corrected in source for the next build. The installed IPA is unchanged by this display-only correction. Typecheck and lint passed.
