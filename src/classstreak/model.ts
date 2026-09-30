@@ -43,6 +43,8 @@ export function safeMessage(error: unknown) {
   const raw = error instanceof Error ? error.message : "Please try again.";
   if (/^STORAGE_ERROR:(KEY_READ|KEY_FORMAT|KEY_CREATE|KEY_SAVE|OPEN|UNLOCK|CIPHER|READ|SCHEMA):(BUSY|KEY_MISMATCH|FULL|LOCKED|DAMAGED|FAILED)$/.test(raw))
     return `Could not open this iPhone's saved data. Please report code ${raw.slice(14)}. Your data has not been reset.`;
+  if (/schema cache|function .*does not exist/i.test(raw))
+    return "This feature couldn’t connect to the latest server update. Please try again shortly. Your saved workouts are safe.";
   const known: Record<string, string> = {
     AUTH_REQUIRED: "Please sign in again.", SETUP_REQUIRED: "Finish setting up your account.",
     PLACE_LIMIT: "You can track up to 12 saved places.", MANUAL_LIMIT: "You can add one manual session each week.",

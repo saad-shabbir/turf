@@ -33,3 +33,12 @@ test("Location storage excludes fixes outside the saved arrival area and expired
  assert.equal(evaluateVisit({...candidate,activity_key:'custom:Climbing'},"2026-09-21T17:24:59Z").qualifies,false);
  assert.equal(evaluateVisit({...candidate,activity_key:'custom:Climbing'},"2026-09-21T17:25:00Z").qualifies,true);
 });
+
+test("Missing server functions never expose database identifiers to members",async()=>{
+ const {safeMessage}=await import("../src/classstreak/model.ts");
+ for(const name of ['cs_friend_profile(peer)','cs_studio_live(venue_id)']){
+  const message=safeMessage(new Error(`Could not find the function public.${name} in the schema cache`));
+  assert.match(message,/try again shortly/i);assert.doesNotMatch(message,/public\.|schema cache|cs_/);
+ }
+ assert.equal(safeMessage(new Error('AUTH_REQUIRED')),'Please sign in again.');
+});

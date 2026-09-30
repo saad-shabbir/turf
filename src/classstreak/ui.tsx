@@ -13,9 +13,9 @@ export const headingFont = Platform.OS === "android" ? "Fraunces_600SemiBold" : 
 const ThemeContext = createContext(themes.clay);
 export const useTheme = () => useContext(ThemeContext);
 export function Theme({ name, children }: { name: ThemeName; children: React.ReactNode }) { return <ThemeContext.Provider value={themes[name]}>{children}</ThemeContext.Provider>; }
-export function Txt({ children, style, muted = false, bold = false, serif = false, size = 15, lines }: { children?: React.ReactNode; style?: TextStyle | TextStyle[]; muted?: boolean; bold?: boolean; serif?: boolean; size?: number; lines?: number }) {
+export function Txt({ children, style, muted = false, bold = false, serif = false, numeric = false, size = 15, lines }: { children?: React.ReactNode; style?: TextStyle | TextStyle[]; muted?: boolean; bold?: boolean; serif?: boolean; numeric?: boolean; size?: number; lines?: number }) {
   const t = useTheme();
-  return <Text numberOfLines={lines} style={[{ color: muted ? t.muted : t.ink, fontFamily: serif ? headingFont : bold ? "Manrope_600SemiBold" : "Manrope_400Regular", fontWeight: serif && Platform.OS !== "android" ? "600" : undefined, fontSize: size, lineHeight: size * (serif ? 1.12 : 1.45), letterSpacing: serif ? -size * 0.035 : -0.15, fontVariant: ["tabular-nums"] }, style]}>{children}</Text>;
+  return <Text numberOfLines={lines} style={[{ color: muted ? t.muted : t.ink, fontFamily: numeric ? "Manrope_600SemiBold" : serif ? headingFont : bold ? "Manrope_600SemiBold" : "Manrope_400Regular", fontWeight: !numeric && serif && Platform.OS !== "android" ? "600" : undefined, fontSize: size, lineHeight: size * (numeric ? 1.15 : serif ? 1.12 : 1.45), letterSpacing: numeric ? -size * 0.025 : serif ? -size * 0.035 : -0.15, fontVariant: ["tabular-nums"] }, style]}>{children}</Text>;
 }
 export const Row = ({ children, style }: { children: React.ReactNode; style?: ViewStyle }) => <View style={[{ flexDirection: "row", alignItems: "center", gap: 10 }, style]}>{children}</View>;
 export function Card({ children, dark, style }: { children: React.ReactNode; dark?: boolean; style?: ViewStyle }) {
@@ -56,7 +56,7 @@ export function Icon({ name, size = 20, color }: { name: string; size?: number; 
     yoga: "M12 7a2 2 0 1 0 0-4 2 2 0 0 0 0 4Zm0 1v7m-7-4 7 2 7-2M8 22l4-7 4 7",
     bike: "M8 17a4 4 0 1 0-8 0 4 4 0 0 0 8 0Zm16 0a4 4 0 1 0-8 0 4 4 0 0 0 8 0ZM4 17 9 6h7l4 11M7 6h5m3-3h4",
     barre: "M2 6h20M6 6v16M18 6v16", bolt: "m14 2-10 12h7l-1 8 10-13h-7Z",
-    glove: "M5 18h13l3-4V7l-4-2H7L4 9v6H2v4h3Z", dumbbell: "M8 7H4v10h4Zm12 0h-4v10h4ZM8 12h8M1 10v4m22-4v4",
+    glove: "M8 16c-2-1-4-3-4-6V7a5 5 0 0 1 5-5h3a5 5 0 0 1 5 5v3l1-2c.8-1.4 3-.8 3 1v3c0 2-1.5 3.5-3 4v5H8v-5Zm0 0h10M8 18h10M17 10l-2 3", dumbbell: "M8 7H4v10h4Zm12 0h-4v10h4ZM8 12h8M1 10v4m22-4v4",
     clock: "M22 12a10 10 0 1 0-20 0 10 10 0 0 0 20 0ZM12 6v6l4 3",
     lock: "M5 11h14v11H5ZM8 11V7a4 4 0 0 1 8 0v4",
     trophy: "M7 3h10v9a5 5 0 0 1-10 0ZM7 5H3v4a4 4 0 0 0 4 4m10-8h4v4a4 4 0 0 1-4 4m-5 4v5m-4 0h8",

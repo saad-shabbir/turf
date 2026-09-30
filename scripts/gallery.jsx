@@ -27,7 +27,7 @@ function Gallery(){
  const [page,setPage]=useState(params.get('page')||'home-empty');
  const [theme,setTheme]=useState(params.get('theme')||'clay');
  const [dataMode,setDataMode]=useState(params.get('page')==='home-empty'?'empty':'example');
- const [data,setData]=useState(fixture);
+ const [data,setData]=useState(()=>params.get('routine')==='boxing'?{...fixture,goals:[{activity_key:'gym',goal:4},{activity_key:'boxing',goal:1}]}:fixture);
  const [selectedStudio,setSelectedStudio]=useState(fixture.places[0]?.id);
  const [message,setMessage]=useState('');
  const [live,setLive]=useState(()=>({visit_id:'preview-arrival',place_id:fixture.places[0]?.id,activity_key:'gym',workout_label:'Weights',entered_at:new Date(Date.now()-12*60000).toISOString()}));
