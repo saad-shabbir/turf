@@ -15,7 +15,9 @@ test('incremental release retains a revoked rollback and restores prior ingest w
   let result=(await db.query("select has_function_privilege('authenticated','public.cs_ingest_before_departure_recovery(jsonb,uuid)','EXECUTE') backup_access,has_function_privilege('anon','public.cs_studio_live(uuid)','EXECUTE') anonymous_live_access,position('recovered' in pg_get_functiondef('public.cs_ingest(jsonb,uuid)'::regprocedure))>0 recovery")).rows[0];
   assert.equal(result.backup_access,false);assert.equal(result.anonymous_live_access,false);assert.equal(result.recovery,true);
   const verification=await db.exec(await readFile('supabase/verify-departure-release.sql','utf8'));
-  assert.ok(Object.values(verification[1].rows[0]).every(value=>value===true),'release guide verification must report every security/schema check true');
+  assert.ok(Object.values(verification[0].rows[0].release_verification.checks).every(value=>value===true),'release guide verification must report every security/schema check true');
+  const audit=await db.exec(await readFile('supabase/audit-departure-recovery.sql','utf8'));
+  assert.equal(audit.length,1);assert.equal(audit[0].rows[0].release_audit.has_recovery_guard,true);
   await actor(db,A);let setup=await rpc(db,'cs_snapshot');assert.equal(setup.goals[0].goal,3);assert.deepEqual(setup.pending_goals,[]);
   setup=await rpc(db,'cs_settings',['goals',{goals:[{activity_key:'gym',goal:7}]}]);assert.equal(setup.pending_goals[0].goal,7);await db.exec('reset role');
   await db.exec(await readFile('supabase/rollback-departure-live-studio.sql','utf8'));

@@ -1,15 +1,10 @@
 -- Read-only release verification. Compare counts with the saved pre-update audit.
 -- No account details, locations, session contents or credentials are returned.
-select (select count(*) from auth.users) as auth_users,
-       (select count(*) from classstreak.users where not is_demo) as real_profiles,
-       (select count(*) from classstreak.sessions) as sessions,
-       (select count(*) from classstreak.places) as places;
-
 with functions as (
  select to_regprocedure('public.cs_ingest(jsonb,uuid)') as ingest,
         to_regprocedure('public.cs_studio_live(uuid)') as live_studio,
         to_regprocedure('public.cs_ingest_before_departure_recovery(jsonb,uuid)') as rollback
-)
+), checks as (
 select coalesce(position('recovered' in pg_get_functiondef(ingest))>0
                 and position('workout_started_at' in pg_get_functiondef(ingest))>0, false) as recovery_guard_present,
        live_studio is not null as live_studio_present,
@@ -25,4 +20,11 @@ select coalesce(position('recovered' in pg_get_functiondef(ingest))>0
                 and conname='user_activities_goal_check'
                 and position('goal >= 0' in pg_get_constraintdef(oid))>0
                 and position('goal <= 7' in pg_get_constraintdef(oid))>0) as weekly_goal_zero_to_seven
-from functions;
+from functions
+)
+select jsonb_build_object('counts',jsonb_build_object(
+ 'auth_users',(select count(*) from auth.users),
+ 'real_profiles',(select count(*) from classstreak.users where not is_demo),
+ 'sessions',(select count(*) from classstreak.sessions),
+ 'places',(select count(*) from classstreak.places)),
+ 'checks',(select to_jsonb(checks) from checks)) as release_verification;
