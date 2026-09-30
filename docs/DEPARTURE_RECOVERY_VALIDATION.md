@@ -27,18 +27,40 @@ Existing `active-workout-local.test.mjs` — 1 passed; `sync-recovery-local.test
 
 `classstreak-live-studio.test.mjs` — 1 passed: new authenticated `cs_studio_live` excludes legacy demo fixtures/count flags, preserves real board/privacy/opt-out behavior, and is unavailable anonymously. Migration 014 adds this read-only wrapper without changing the old RPC or deleting seeded records.
 
-`classstreak-recovery-deployment.test.mjs` — 1 passed: incremental release retains the actual prior ingest implementation with all client execution revoked; rollback restores its exact definition hash and preserves Auth row count in the disposable fixture.
+`classstreak-recovery-deployment.test.mjs` — 1 passed: incremental release retains the actual prior ingest/social/friend-list implementations with all client execution revoked; rollback restores their exact definition hashes and preserves Auth row count in the disposable fixture. The new profile endpoint is disabled on rollback so it cannot advertise eligibility that differs from the restored social rule.
 
 `classstreak-exact-goals.test.mjs` — 1 passed: migration 015 broadens only the `user_activities` goal constraint from 0–4 to 0–7. Onboarding accepts five/seven including custom climbing; editing to seven remains deferred until next week; eight is rejected atomically in setup/settings. Deployment and rollback retain existing/historical goals, including valid seven-day goals saved after release. Rollback deliberately keeps the broader constraint instead of clamping user preferences.
+
+`classstreak-friend-profile.test.mjs` — 3 passed: migration 016 exposes only an accepted real friend's safe first name, real weekly count/goal/streak, coarse weekly workout details and nudge status. Pending, removed, nonexistent and anonymous access is denied; precise timestamps, gender, place and coordinates are absent. An actual sender RPC produces one recipient inbox item, verified after changing the authenticated actor. Retrying a successful send does not duplicate the inbox item. Recipient preference, any real completed workout (including a short non-counting workout or one finished after midnight), and the recipient's local date enforce eligibility. Seeds/simulations never suppress a real nudge. Direct private helpers and saved social implementations remain inaccessible.
+
+Nudges lock both user rows in UUID order before checking eligibility, so a concurrent workout completion or notification preference edit that already holds the recipient lock completes before the nudge decision. Accepted friendship is locked separately against revocation. Reciprocal sends use the same user lock order. These lock paths were inspected; true multi-connection concurrency is not reproduced by the disposable PGlite harness. Delivery is the existing real inbox on sync; this does not add closed-app remote push.
+
+`npm run test:db` — 65 passed across the combined database/domain suite. After the final recipient-lock, midnight and wording edits, the five focused profile/inbox/release tests passed again. Typecheck and focused ESLint passed.
 
 ## Hosted deployment preparation
 
 No Supabase management connector or configured CLI was available to this subtask. Previous releases used the signed-in dashboard SQL editor. A browser inventory attempt timed out, so hosted state is **not audited by this subtask**.
 
+### User-reported pre-deployment audit — September 30, 2026
+
+The user supplied the read-only audit result for `qrehonivhqcgfrjcpzqk`. This is user-reported hosted evidence, not a query executed by this subtask:
+
+- Auth users: **2**; real ClassStreak profiles: **2**; places: **9**; sessions: **210**.
+- Migration 012 capture-status RPC: **present**. Drive-away speed fix: **present**.
+- Recovery guard, live-studio RPC and saved rollback function: **all absent**.
+- Authenticated ingest execution: **allowed**. Anonymous ingest execution: **not allowed**.
+- Ingest definition MD5: **`f9848e5f82a5f0ae851b11b6d9cece7c`**.
+- Weekly activity goal constraint: **0–4**.
+- Public tables: `cs_revisions`, `devices`, `diagnostic_events`, `geofence_events`, `pairs`, `places`, `profiles`, `tracking_sessions`, `user_settings`, `visits`.
+
+The reported ingest hash exactly matches migration 011 recreated in disposable PostgreSQL; that implementation includes arrival-bound workout controls. The guarded release now checks this exact hash as well as the previously defined structural/grant/goal checks. The reported values meet the known pre-release conditions. The retained original studio helper is also checked transactionally before applying; its presence was not a separate field in the supplied audit. No hosted execution or deployment is claimed from this report.
+
+A safe machine-readable copy is saved at `build/evidence/supabase-pre-revamp-audit.json` (ignored build output). It contains counts/schema metadata only.
+
 1. Confirm the dashboard project is `qrehonivhqcgfrjcpzqk` (turf). Run `supabase/audit-departure-recovery.sql`. It returns counts and function/security metadata only; no credentials, email addresses or location data.
-2. If migration 012 and the old arrival-bound ingest/0–4 goal constraint are present and 013–015 are absent, run **only** `supabase/departure-live-studio-release.sql`. This transaction backs up the deployed ingest to a revoked `cs_ingest_before_departure_recovery`, applies 013–015, and checks grants and the new 0–7 constraint. It deliberately aborts on an unexpected baseline or preexisting release/backup. It does not replay earlier migrations or modify stored rows.
+2. If migration 012 and the old arrival-bound ingest/0–4 goal constraint are present and 013–016 are absent, run **only** `supabase/departure-live-studio-release.sql`. This transaction backs up the deployed ingest to a revoked `cs_ingest_before_departure_recovery`, saves the original social/friend-list implementations under revoked backup names, applies 013–016, and checks grants and the new 0–7 constraint. It deliberately aborts on an unexpected baseline or preexisting release/backup. It does not replay earlier migrations or modify stored rows. The expanded audit reports whether the friend profile and friend rollback already exist; they were not fields in the earlier user-supplied audit, so their absence is also checked inside the guarded transaction.
 3. Rerun the read-only audit; confirm recovery guard, live RPC, authenticated-only access and preserved data. Record actual hosted evidence in the parent release notes. Account/session counts may also legitimately change from normal app usage.
-4. Emergency rollback, if needed: reviewed `supabase/rollback-departure-live-studio.sql` restores the original saved ingest definition. The harmless read-only live studio RPC remains available. No records or columns are dropped.
+4. Emergency rollback, if needed: reviewed `supabase/rollback-departure-live-studio.sql` restores the original saved ingest, friend-list and social definitions and disables the new profile RPC. The harmless read-only live studio RPC remains available. No records or columns are dropped; sent nudges and inbox history remain intact.
 
 ## Pending validation and limits
 

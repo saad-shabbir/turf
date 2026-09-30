@@ -18,7 +18,7 @@ export function Onboarding({draft:d,change,next,requestLocation,search,account}:
  const schedules=d.schedules??d.selected.map(activity_key=>({activity_key,days:d.days,time:d.time}));
  const advance=()=>d.step===0?change({step:-1}):d.step===-1?change({step:1}):next();
  const back=()=>change({step:d.step===-1?0:d.step===1?-1:Math.max(0,d.step-1)});
- const titles=['','What moves you?',"What’s your\nweekly goal?",'Find your place.','Your usual days.','Let your visits\nlog themselves.','Make it yours.',"What’s your name?",'How do you identify?','Save your routine.'];
+ const titles=['','Choose your workouts.',"What’s your\nweekly goal?",'Find your place.','Your usual days.','Let your visits\nlog themselves.','Make it yours.',"What’s your name?",'How do you identify?','Save your routine.'];
  const descriptions=['','Choose the workouts that are part of your routine.','Pick a goal that feels realistic. You can change it later.','Save your gym or studio. We’ll use arrivals and departures here to log your visits.','A little routine goes a long way. Set days and a time for each activity.','Location helps ClassStreak notice when you arrive at, and leave, your saved places.','The same ClassStreak, in your colors.','Friends see your first name. Studio boards show your first name and last initial.','Optional, and private to your account.','Create an account to keep your places, goals and workouts together.'];
  const stepOrder=[1,2,3,4,5,6,7,8,9];
  const stepIndex=stepOrder.indexOf(d.step);

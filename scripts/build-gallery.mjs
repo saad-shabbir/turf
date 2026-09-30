@@ -17,9 +17,15 @@ const nativeAdapters=`
 import React from 'react';
 import {View,Image} from 'react-native-web';
 import picture from './assets/community-workouts.png';
+import {galleryFriend,galleryFriendProfile,galleryFriendFeed} from './scripts/gallery-fixtures.mjs';
+let previewNudged=false;
 export const ImpactFeedbackStyle={Light:'light'};
 export const impactAsync=async()=>{};
-export const call=async()=>null;
+export const call=async(name,args)=>{
+ if(name==='cs_friend_profile'&&args.peer===galleryFriend.id)return galleryFriendProfile(previewNudged);
+ if(name==='cs_social'&&args.action==='nudge'&&args.payload.id===galleryFriend.id){previewNudged=true;return {...__CLASSSTREAK_FIXTURE__,friends:[{...galleryFriend,nudge_available:false}],feed:[galleryFriendFeed]};}
+ return null;
+};
 export const readPhoto=async()=>null;
 export const queuePhoto=async()=>true;
 export const saveToPhotos=async()=>{};
@@ -48,7 +54,7 @@ await build({
  alias:{'react-native':'react-native-web'},resolveExtensions:['.web.tsx','.web.ts','.web.js','.tsx','.ts','.jsx','.js','.json'],
  plugins:[{name:'preview-only-native-adapters',setup(b){
   b.onResolve({filter:/^\.\.\/db\/local$/},()=>({path:'preview-memory-store',namespace:'preview-store'}));
-  b.onLoad({filter:/.*/,namespace:'preview-store'},()=>({loader:'js',contents:`const values=new Map();export const read=async(key,fallback)=>values.has(key)?values.get(key):fallback;export const write=async(key,value)=>{values.set(key,value);};export const transaction=async(fn)=>fn({});`}));
+  b.onLoad({filter:/.*/,namespace:'preview-store'},()=>({loader:'js',contents:`const prefix='classstreak-preview:';export const read=async(key,fallback)=>{const raw=localStorage.getItem(prefix+key);return raw===null?fallback:JSON.parse(raw);};export const write=async(key,value)=>{localStorage.setItem(prefix+key,JSON.stringify(value));};export const transaction=async(fn)=>fn({});`}));
   b.onResolve({filter:/^(expo-haptics|expo-location|react-native-share|react-native-view-shot|expo-camera|expo-image-picker|expo-blur)$|^\.\/(api|photos|notifications)$/},args=>({path:args.path,namespace:'preview'}));
   b.onLoad({filter:/.*/,namespace:'preview'},()=>({loader:'jsx',resolveDir:process.cwd(),contents:nativeAdapters}));
  }}],

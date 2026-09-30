@@ -1,0 +1,4 @@
+// Disposable browser-only fixtures for testing the real-friend screen UI.
+export const galleryFriend={id:'preview-friend',first_name:'Alex',status:'accepted',requested_by:'preview-friend',weekly_count:2,weekly_goal:3,streak:4,days:[0,1],usual_days:[0,2,4],is_demo:false,time_of_day:'evening',nudge_available:true,week_details:[{day:0,activity_key:'gym',workout_label:'Weights',time_of_day:'evening',duration_sec:3600},{day:1,activity_key:'custom:Climbing',workout_label:'Climbing',time_of_day:'evening',duration_sec:2700}]};
+export const galleryFriendProfile=nudged=>({...galleryFriend,nudge_available:!nudged,nudged_today:nudged,worked_out_today:false});
+export const galleryFriendFeed={id:'preview-friend-workout',user_id:galleryFriend.id,first_name:galleryFriend.first_name,activity_key:'gym',workout_label:'Weights',duration_sec:3600,place_name:null,relative_time:'yesterday',source:'geofence',photo_url:null,note:'A good hour after work.',reactions:[],comments:[]};

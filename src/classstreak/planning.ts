@@ -4,7 +4,8 @@ import {localTime, type Reminder} from './reminder-plan.ts';
 
 export type PlanRule = {id:string; weekday:number; activity_key:ActivityKey; time:string|null; period:TimeOfDay; focus:string; reminder:boolean};
 export type PlanOverride = {day:string; rule_id:string; activity_key:ActivityKey; time:string|null; period:TimeOfDay; focus:string; reminder:boolean; skipped?:boolean};
-export type WeeklyPlanning = {version:1; rules:PlanRule[]; overrides:PlanOverride[]};
+export type RestDayChoice = 'yes'|'no'|'maybe';
+export type WeeklyPlanning = {version:1; rules:PlanRule[]; overrides:PlanOverride[]; rest_days?:Record<string,RestDayChoice>};
 export type PlannedWorkout = Omit<PlanRule,'weekday'> & {day:string; recurring:boolean; changed:boolean};
 export const emptyPlanning = ():WeeklyPlanning=>({version:1,rules:[],overrides:[]});
 export const validTime = (value:unknown):value is string=>typeof value==='string'&&/^([01]\d|2[0-3]):[0-5]\d$/.test(value);
@@ -31,7 +32,16 @@ export function workoutsOn(planning:WeeklyPlanning,day:string):PlannedWorkout[]{
  for(const override of changed)if(!override.skipped&&!recurring.some(r=>r.id===override.rule_id))entries.push({...override,id:override.rule_id,recurring:false,changed:true});
  return entries.sort((a,b)=>(a.time??periodTime(a.period)).localeCompare(b.time??periodTime(b.period))||a.id.localeCompare(b.id));
 }
+export function setRestDayChoice(planning:WeeklyPlanning,day:string,choice:RestDayChoice|null):WeeklyPlanning{
+ const rest_days={...planning.rest_days};if(choice)rest_days[day]=choice;else delete rest_days[day];
+ return {...planning,rest_days};
+}
+export function restDayPrompt(planning:WeeklyPlanning,day:string,today:string,hasLoggedWorkout:boolean):'question'|'rest'|'reminder'|null{
+ if(day!==today||hasLoggedWorkout||workoutsOn(planning,day).length)return null;
+ const choice=planning.rest_days?.[day];return choice==='yes'?'rest':choice==='no'||choice==='maybe'?'reminder':'question';
+}
 export function savePlannedWorkout(planning:WeeklyPlanning,workout:PlannedWorkout,repeat:boolean):WeeklyPlanning{
+ planning=setRestDayChoice(planning,workout.day,null);
  const cleaned={...workout,time:validTime(workout.time)?workout.time:null,focus:workout.focus.trim().slice(0,60)};
  if(repeat){
   const rule:PlanRule={id:workout.id,weekday:weekdayOf(workout.day),activity_key:cleaned.activity_key,time:cleaned.time,period:cleaned.period,focus:cleaned.focus,reminder:cleaned.reminder};

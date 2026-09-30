@@ -9,6 +9,7 @@ import {notifyPendingVisit,notifySession,notifyArrival} from "./notifications";
 import {captureHoldReason,type CaptureStatus} from "./syncRecovery";
 import {observeDeparture,type DepartureEvidence} from './departureRecovery';
 import {track} from './analytics';
+import {syncWorkoutLiveActivity} from './workoutLiveActivity';
 export const TASK = "TURF_GEOFENCE_V1";
 export const FIX_TASK = "CLASSSTREAK_FIXES_V1";
 type TrackingState = { owner: string | null; token: string | null; paused: boolean; places: Place[]; candidate: Candidate | null; simulated: Candidate | null; outside: string[]; epoch: number; departure?: DepartureEvidence | null; next_places?:Place[] };
@@ -85,6 +86,7 @@ export async function receiveEvent(event: VisitEvent, fix?: {lat:number;lng:numb
   const logs=await read<TrackingLog[]>("cs:logs",[],db);logs.push({at:event.observed_at,kind:event.kind,source:event.source,reason,place_id:place.id});
   await write("cs:logs",logs.slice(-100),db);await write("cs:tracking",{...state,[key]:candidate},db);if(event.source==='geofence')await write('cs:last_callback',event.observed_at,db);
  });
+ await syncWorkoutLiveActivity().catch(()=>{});
  if(arrival)await notifyArrival(arrival.name,event.event_id).catch(()=>{});
  if(startFixes)await ensureVisitFixes().catch(()=>write('cs:task_error','Arrival saved, but backup location updates could not start. Open the app to check tracking.'));
  if(stopFixes&&await Location.hasStartedLocationUpdatesAsync(FIX_TASK))await Location.stopLocationUpdatesAsync(FIX_TASK);
@@ -124,6 +126,7 @@ async function registerRegions(state:TrackingState,attempt=0):Promise<void>{
 export async function stopTracking() {
  let token:string|null=null;
  await transaction(async db=>{const s=await read("cs:tracking",initial,db);token=s.token;await write("cs:tracking",{...s,paused:true,candidate:null,departure:null,epoch:s.epoch+1},db);await write("cs:fixes",[],db);});
+ await syncWorkoutLiveActivity().catch(()=>{});
  if(await Location.hasStartedGeofencingAsync(TASK))await Location.stopGeofencingAsync(TASK);
  if(await Location.hasStartedLocationUpdatesAsync(FIX_TASK))await Location.stopLocationUpdatesAsync(FIX_TASK);
  if(token)await call("cs_tracking",{action:"stop",capture_token:token}).catch(()=>{});
@@ -162,6 +165,7 @@ export async function startTracking() {
  catch(e){if(sameCapture(await trackingState(),state))await stopTracking();throw e;}
 }
 export async function reconcileTracking() {
+ await syncWorkoutLiveActivity().catch(()=>{});
  const state=await trackingState();if(state.paused){if(await Location.hasStartedGeofencingAsync(TASK))await Location.stopGeofencingAsync(TASK);if(await Location.hasStartedLocationUpdatesAsync(FIX_TASK))await Location.stopLocationUpdatesAsync(FIX_TASK);return;}
  const permission=await Location.getBackgroundPermissionsAsync();
  if(permission.status!=="granted"||!await Location.hasServicesEnabledAsync()){await stopTracking();return;}

@@ -1,6 +1,6 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {emptyPlanning,plannedReminders,planningFromSnapshot,removePlannedWorkout,restorePlannedWorkout,savePlannedWorkout,schedulesToRules,weekCalendar,workoutsOn} from '../src/classstreak/planning.ts';
+import {emptyPlanning,plannedReminders,planningFromSnapshot,removePlannedWorkout,restDayPrompt,restorePlannedWorkout,savePlannedWorkout,schedulesToRules,setRestDayChoice,weekCalendar,workoutsOn} from '../src/classstreak/planning.ts';
 import {reconcilePlannedNotifications,reminderFingerprint} from '../src/classstreak/planningNotificationSync.ts';
 
 const snapshot={profile:{id:'owner-a',tz:'America/Los_Angeles',notification_preferences:{}},usual_days:[{activity_key:'gym',weekday:2,time_of_day:'evening'}],goals:[{activity_key:'gym',goal:3}],sessions:[]};
@@ -37,6 +37,34 @@ test('A one-off on a rest day does not silently repeat',()=>{
  const once=savePlannedWorkout(plan,{...original(),id:'extra:once',day:'2026-10-01',activity_key:'yoga'},false);
  assert.equal(workoutsOn(once,'2026-10-01').length,1);assert.equal(workoutsOn(once,'2026-10-08').length,0);
  assert.equal(workoutsOn(removePlannedWorkout(once,workoutsOn(once,'2026-10-01')[0],false),'2026-10-01').length,0);
+});
+test('Rest-day choices only affect an empty today; existing plans and logged workouts take priority',()=>{
+ const day='2026-10-01';const initial=emptyPlanning();
+ assert.equal(restDayPrompt(initial,day,day,false),'question');
+ assert.equal(restDayPrompt(initial,'2026-09-30',day,false),null);
+ assert.equal(restDayPrompt(initial,'2026-10-02',day,false),null);
+ assert.equal(restDayPrompt(initial,day,day,true),null);
+ const resting=setRestDayChoice(initial,day,'yes');assert.equal(restDayPrompt(resting,day,day,false),'rest');
+ const scheduled=savePlannedWorkout(resting,{...original(),day,id:'rest-day-training'},false);
+ assert.equal(restDayPrompt(scheduled,day,day,false),null);
+ assert.equal(scheduled.rest_days[day],undefined,'saving a workout clears an earlier rest answer');
+ assert.equal(initial.rest_days,undefined,'answering does not mutate prior state');
+});
+test('No and Maybe lead to a reminder, remain editable and do not change next week or existing reminders',()=>{
+ const today='2026-10-01';const baseline=plannedReminders(plan,snapshot,new Date('2026-09-30T08:00:00Z'));
+ for(const choice of ['no','maybe']){
+  const changed=setRestDayChoice(plan,today,choice);assert.equal(restDayPrompt(changed,today,today,false),'reminder');
+  assert.deepEqual(changed.rules,plan.rules);assert.deepEqual(changed.overrides,plan.overrides);
+  assert.deepEqual(plannedReminders(changed,snapshot,new Date('2026-09-30T08:00:00Z')),baseline);
+  assert.equal(restDayPrompt(setRestDayChoice(changed,today,null),today,today,false),'question');
+  assert.equal(restDayPrompt(changed,'2026-10-02','2026-10-02',false),'question','a new day gets its own question');
+ }
+});
+test('A stored rest answer never hides a later logged session or a restored recurring workout',()=>{
+ const workout=original();let resting=removePlannedWorkout(plan,workout,false);resting=setRestDayChoice(resting,workout.day,'yes');
+ assert.equal(restDayPrompt(resting,workout.day,workout.day,false),'rest');
+ assert.equal(restDayPrompt(resting,workout.day,workout.day,true),null);
+ assert.equal(restDayPrompt(restorePlannedWorkout(resting,workout.day,workout.id),workout.day,workout.day,false),null);
 });
 test('One-hour reminders use the owner timezone rather than the device timezone',()=>{
  const reminders=plannedReminders(plan,snapshot,new Date('2026-09-30T08:00:00Z'));

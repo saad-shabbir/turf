@@ -11,7 +11,8 @@ export function Sticker({session,count,goal,streak,frosted=false,design='glass',
  const t=useTheme();const light=design==='ticket';const color=light?'#292A27':'#fff';const alpha=Math.round(Math.max(.12,Math.min(.9,opacity))*255).toString(16).padStart(2,'0');
  return <View style={{padding:design==='minimal'?12:19,borderRadius:design==='ticket'?5:22,backgroundColor:design==='minimal'?'transparent':frosted?(light?'#FDFBF7':'#1E211E')+alpha:light?'#FDFBF7':t.ink,borderWidth:design==='glass'&&frosted?1:0,borderColor:'#ffffff35',gap:12}}>
   <Txt serif size={30} style={{color,textAlign:design==='minimal'?'left':'center',textShadowColor:design==='minimal'?'#00000088':'transparent',textShadowRadius:8,textShadowOffset:{width:0,height:1}}}>{session.workout_label}</Txt>
-  <Row style={{width:'100%',justifyContent:'space-between',gap:8}}>{[['Time',durationLabel(session.duration_sec,true)],['This week',`${count}/${goal}`],['Streak',`${streak} wk`]].map(([label,value])=><View key={label} style={{alignItems:design==='minimal'?'flex-start':'center',gap:2}}><Txt size={10} style={{color,opacity:.82}}>{label}</Txt><Txt bold size={19} style={{color}}>{value}</Txt></View>)}</Row>
+  <Row style={{width:'100%',justifyContent:'space-between',gap:8}}>{[['Time',durationLabel(session.duration_sec,true)],['Streak',`${streak} wk`]].map(([label,value])=><View key={label} style={{alignItems:design==='minimal'?'flex-start':'center',gap:2}}><Txt size={10} style={{color,opacity:.82}}>{label}</Txt><Txt bold size={19} style={{color}}>{value}</Txt></View>)}</Row>
+  <Txt size={12} bold style={{color,textAlign:design==='minimal'?'left':'center'}}>{goal>0?`${count}/${goal} goal this week`:`${count} ${count===1?'workout':'workouts'} this week`}</Txt>
   <View style={{alignItems:design==='minimal'?'flex-start':'center',paddingTop:3}}><Logo white={!light} size={17}/></View>
  </View>;
 }

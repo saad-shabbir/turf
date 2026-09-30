@@ -34,7 +34,9 @@ test('Exact times and one-off activity overrides survive storage reload; owners 
  await store.seedWeeklyPlanning(s.profile.id,[]);assert.equal((await store.loadWeeklyPlanning(s)).rules.length,7);
  await store.replaceWeeklySchedules(s.profile.id,[{...schedules[0],exact_time:'20:00'}]);
  assert.equal(planning.workoutsOn(await store.loadWeeklyPlanning(s),'2026-09-30')[0].time,'18:00');
- assert.equal((await store.loadWeeklyPlanning(snapshot('owner-b'))).rules.length,0);
+ let rest=await store.loadWeeklyPlanning(s);const tomorrowWorkout=planning.workoutsOn(rest,'2026-10-01')[0];rest=planning.removePlannedWorkout(rest,tomorrowWorkout,false);rest=planning.setRestDayChoice(rest,'2026-10-01','yes');await store.saveWeeklyPlanning(s.profile.id,rest);
+ assert.equal(planning.restDayPrompt(await store.loadWeeklyPlanning(s),'2026-10-01','2026-10-01',false),'rest','rest answer survives a fresh storage read');
+ const other=await store.loadWeeklyPlanning(snapshot('owner-b'));assert.equal(other.rules.length,0);assert.equal(planning.restDayPrompt(other,'2026-10-01','2026-10-01',false),'question','another owner does not inherit the rest answer');
 });
 
 test('Permission denial schedules nothing; logout cancels in-flight work and an old owner cannot schedule for a new account',async()=>{

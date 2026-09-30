@@ -5,9 +5,9 @@ import type { ThemeName } from "./model";
 import {useReducedMotion,SoftPressable,Entrance} from './motion';
 
 export const themes = {
-  blush: { paper: "#F5EFED", card: "#FFFCFA", ink: "#302729", accent: "#62474D", tint: "#EADADD", muted: "#786B6D", line: "#E7DEDC" },
-  sage: { paper: "#F0F2EC", card: "#FCFDF9", ink: "#292E27", accent: "#3B4938", tint: "#DFE5D9", muted: "#70766A", line: "#E0E4DA" },
-  clay: { paper: "#F3F0E9", card: "#FDFBF7", ink: "#292A27", accent: "#1C1D1A", tint: "#E8E4DA", muted: "#70716A", line: "#E4E1D9" },
+  blush: { paper: "#F8EEEE", card: "#FFFBF9", ink: "#39292F", accent: "#A34C64", tint: "#F0D5DA", muted: "#80676D", line: "#EADADD" },
+  sage: { paper: "#F1F3EA", card: "#FCFCF6", ink: "#2E352B", accent: "#566F4F", tint: "#DDE5D0", muted: "#6E7662", line: "#DEE3D4" },
+  clay: { paper: "#F6F1E9", card: "#FFFCF7", ink: "#322C28", accent: "#A45338", tint: "#EEDDCB", muted: "#776D64", line: "#E7DED2" },
 };
 export const headingFont = Platform.OS === "android" ? "Fraunces_600SemiBold" : "Georgia";
 const ThemeContext = createContext(themes.clay);
