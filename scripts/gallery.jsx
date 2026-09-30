@@ -15,13 +15,13 @@ import {PlacesPicker} from '../src/classstreak/PlacesPicker';
 import {Post,Celebration} from '../src/classstreak/Post';
 import {ActiveWorkout} from '../src/classstreak/ActiveWorkout';
 import {PreservedVisits} from '../src/classstreak/PreservedVisits';
-import {CommunityPreview,SampleStudioBoard} from '../src/classstreak/CommunityPreview';
+import {CommunityPreview} from '../src/classstreak/CommunityPreview';
 import {newDraft,activity} from '../src/classstreak/model';
 
 /* global __CLASSSTREAK_FIXTURE__ */
 const fixture=__CLASSSTREAK_FIXTURE__;
 const onboarding=['welcome','activities','sessions','find','usual-days','permission','look','name','identify','account'];
-const pages=[...onboarding,'how-it-works','home-empty','home-sample','studios','studio-sample','friends','friends-real','friend-unavailable','history','profile','session','post','community','live-activity','plus','recap','milestone','active-workout','sync-review'];
+const pages=[...onboarding,'how-it-works','home-empty','home-sample','studios','studio-sample','studio-unavailable','friends','friends-real','friend-unavailable','history','profile','session','post','community','live-activity','plus','recap','milestone','active-workout','sync-review'];
 function Gallery(){
  const params=new URLSearchParams(location.search);
  const [page,setPage]=useState(params.get('page')||'home-empty');
@@ -67,13 +67,13 @@ function Gallery(){
  };
  const change=patch=>{setDraft(d=>({...d,...patch}));if(patch.theme)setTheme(patch.theme);if(patch.step!==undefined)go(patch.step===-1?'how-it-works':onboarding[patch.step]);};
  const idx=onboarding.indexOf(page);
- const pane=page==='session'?(s.sessions.length?'session:'+s.sessions[0].id:'history'):page==='home-empty'||page==='home-sample'?'home':page==='studio-sample'?'studios':page==='friends-real'?'friends':page;
+ const pane=page==='session'?(s.sessions.length?'session:'+s.sessions[0].id:'history'):page==='home-empty'||page==='home-sample'?'home':page==='studio-sample'||page==='studio-unavailable'?'studios':page==='friends-real'?'friends':page;
  const extra=p=>p==='sync-review'?<PreservedVisits snapshot={s} action={action} held={['ENTER','EXIT'].map((kind,i)=>({event_id:String(i),reason:'Previous tracking setup',payload:JSON.stringify({kind,place_id:s.places[0]?.id,observed_at:i?'2026-09-23T05:12:08Z':'2026-09-23T03:18:01Z'})}))}/>:
   p==='active-workout'?<ActiveWorkout candidate={live} snapshot={s} action={action}/>:
   p.startsWith('friend:')?<FriendProfile peerId={p.slice(7)} snapshot={s} action={action}/>:
   p==='friend-unavailable'?<FriendProfile peerId="not-a-friend" snapshot={s} action={action}/>:
   p==='friends'?<><Txt muted size={11}>BROWSER FIXTURE · No real friend or nudge is contacted.</Txt><Friends snapshot={s} action={action} now={new Date()}/></>:
-  p==='studios'?<><StudioView snapshot={s} selected={selectedStudio} onSelect={setSelectedStudio} action={action} data={{venue_id:s.places[0]?.venue_id,name:s.places.find(p=>p.id===selectedStudio)?.name,visits:empty?0:22,next_milestone:empty?1:25,regulars:0,sample_visits:!empty,demo_board:false,board:[]}}/>{page==='studio-sample'&&<><Txt muted size={11}>EXAMPLE BOARD · Fictional profiles</Txt><SampleStudioBoard name="Saad" count={2}/></>}</>:
+  p==='studios'?<><StudioView snapshot={s} selected={selectedStudio} onSelect={setSelectedStudio} action={action} status={page==='studio-unavailable'?'Studio rankings are waiting for the latest server update. Your saved workouts are safe.':''} data={page==='studio-unavailable'?null:{venue_id:s.places[0]?.venue_id,name:s.places.find(p=>p.id===selectedStudio)?.name,visits:empty?0:22,next_milestone:empty?1:25,regulars:0,sample_visits:!empty,demo_board:false,board:[]}}/></>:
   <><Logo/><Txt>{p}</Txt><Button secondary title="Back home" onPress={()=>go('home')}/></>;
  return <SafeAreaProvider initialMetrics={{frame:{x:0,y:0,width:390,height:844},insets:{top:0,left:0,right:0,bottom:0}}}>
   <nav><select aria-label="Preview screen" value={page} onChange={e=>go(e.target.value)}>{[...new Set([...pages,page])].map(p=><option key={p}>{p}</option>)}</select><select aria-label="Color theme" value={theme} onChange={e=>setTheme(e.target.value)}>{['clay','sage','blush'].map(p=><option key={p}>{p}</option>)}</select><select aria-label="Preview data" value={dataMode} onChange={e=>setDataMode(e.target.value)}><option value="empty">Empty account</option><option value="example">Example account</option></select><span>PREVIEW</span></nav>

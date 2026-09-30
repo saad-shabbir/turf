@@ -1,6 +1,6 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {emptyPlanning,plannedReminders,planningFromSnapshot,removePlannedWorkout,restDayPrompt,restorePlannedWorkout,savePlannedWorkout,schedulesToRules,setRestDayChoice,weekCalendar,workoutsOn} from '../src/classstreak/planning.ts';
+import {emptyPlanning,plannedReminders,planningFromSnapshot,removePlannedWorkout,reschedulePlannedWorkout,restDayPrompt,restorePlannedWorkout,savePlannedWorkout,schedulesToRules,setRestDayChoice,weekCalendar,workoutsOn} from '../src/classstreak/planning.ts';
 import {reconcilePlannedNotifications,reminderFingerprint} from '../src/classstreak/planningNotificationSync.ts';
 
 const snapshot={profile:{id:'owner-a',tz:'America/Los_Angeles',notification_preferences:{}},usual_days:[{activity_key:'gym',weekday:2,time_of_day:'evening'}],goals:[{activity_key:'gym',goal:3}],sessions:[]};
@@ -38,11 +38,11 @@ test('A one-off on a rest day does not silently repeat',()=>{
  assert.equal(workoutsOn(once,'2026-10-01').length,1);assert.equal(workoutsOn(once,'2026-10-08').length,0);
  assert.equal(workoutsOn(removePlannedWorkout(once,workoutsOn(once,'2026-10-01')[0],false),'2026-10-01').length,0);
 });
-test('Rest-day choices only affect an empty today; existing plans and logged workouts take priority',()=>{
+test('Rest-day choices affect empty today and future dates; existing plans and logged workouts take priority',()=>{
  const day='2026-10-01';const initial=emptyPlanning();
  assert.equal(restDayPrompt(initial,day,day,false),'question');
  assert.equal(restDayPrompt(initial,'2026-09-30',day,false),null);
- assert.equal(restDayPrompt(initial,'2026-10-02',day,false),null);
+ assert.equal(restDayPrompt(initial,'2026-10-02',day,false),'question');
  assert.equal(restDayPrompt(initial,day,day,true),null);
  const resting=setRestDayChoice(initial,day,'yes');assert.equal(restDayPrompt(resting,day,day,false),'rest');
  const scheduled=savePlannedWorkout(resting,{...original(),day,id:'rest-day-training'},false);
@@ -116,4 +116,27 @@ test('Missing OS schedules recover even if a previous fingerprint was saved',asy
  await reconcilePlannedNotifications([reminder],fake.transport);
  assert.equal(fake.items.get(reminder.id).content.data.planning_fingerprint,reminderFingerprint(reminder));
  fake.items.clear();await reconcilePlannedNotifications([reminder],fake.transport);assert.equal(fake.calls.filter(c=>c[0]==='schedule').length,2);
+});
+
+
+test('Rescheduling moves one occurrence, clears destination rest choice and cancels the old reminder',()=>{
+ const initial=setRestDayChoice(plan,'2026-10-01','yes');const source=original();
+ const changed=reschedulePlannedWorkout(initial,source,{...source,day:'2026-10-01',time:'20:15',focus:'Pull'});
+ assert.equal(workoutsOn(changed,source.day).length,0);
+ const moved=workoutsOn(changed,'2026-10-01');assert.equal(moved.length,1);assert.equal(moved[0].time,'20:15');assert.equal(moved[0].focus,'Pull');
+ assert.equal(changed.rest_days['2026-10-01'],undefined);
+ assert.equal(workoutsOn(changed,'2026-10-07')[0].time,'19:00');
+ const reminders=plannedReminders(changed,snapshot,new Date('2026-09-30T08:00:00Z'));
+ assert.ok(!reminders.some(r=>r.id.startsWith('plan:owner-a:2026-09-30:')));
+ assert.equal(reminders.find(r=>r.id.includes(':2026-10-01:')).at.toISOString(),'2026-10-02T02:15:00.000Z');
+ assert.equal(workoutsOn(plan,source.day).length,1,'original plan is not mutated');
+});
+test('Rescheduling a one-off or editing its time leaves other workouts untouched',()=>{
+ const source={...original(),id:'extra:one',day:'2026-10-01',recurring:false,changed:true};
+ const initial=savePlannedWorkout(plan,source,false);
+ const moved=reschedulePlannedWorkout(initial,source,{...source,day:'2026-10-02'});
+ assert.equal(workoutsOn(moved,source.day).length,0);assert.equal(workoutsOn(moved,'2026-10-02').length,1);
+ assert.deepEqual(moved.rules,plan.rules);
+ const retimed=reschedulePlannedWorkout(initial,source,{...source,time:'11:30'});
+ assert.equal(workoutsOn(retimed,source.day).length,1);assert.equal(workoutsOn(retimed,source.day)[0].time,'11:30');
 });

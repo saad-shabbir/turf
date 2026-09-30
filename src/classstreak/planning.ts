@@ -37,7 +37,7 @@ export function setRestDayChoice(planning:WeeklyPlanning,day:string,choice:RestD
  return {...planning,rest_days};
 }
 export function restDayPrompt(planning:WeeklyPlanning,day:string,today:string,hasLoggedWorkout:boolean):'question'|'rest'|'reminder'|null{
- if(day!==today||hasLoggedWorkout||workoutsOn(planning,day).length)return null;
+ if(day<today||hasLoggedWorkout||workoutsOn(planning,day).length)return null;
  const choice=planning.rest_days?.[day];return choice==='yes'?'rest':choice==='no'||choice==='maybe'?'reminder':'question';
 }
 export function savePlannedWorkout(planning:WeeklyPlanning,workout:PlannedWorkout,repeat:boolean):WeeklyPlanning{
@@ -57,6 +57,13 @@ export function removePlannedWorkout(planning:WeeklyPlanning,workout:PlannedWork
  return {...planning,overrides:[...rest,{day:workout.day,rule_id:workout.id,activity_key:workout.activity_key,time:workout.time,period:workout.period,focus:workout.focus,reminder:false,skipped:true}]};
 }
 export function restorePlannedWorkout(planning:WeeklyPlanning,day:string,id:string):WeeklyPlanning{return {...planning,overrides:planning.overrides.filter(o=>!(o.day===day&&o.rule_id===id))};}
+
+// Move only this occurrence. Keep the recurring rule and every other date intact.
+export function reschedulePlannedWorkout(planning:WeeklyPlanning,original:PlannedWorkout,replacement:PlannedWorkout):WeeklyPlanning{
+ if(original.day===replacement.day)return savePlannedWorkout(planning,replacement,false);
+ const removed=removePlannedWorkout(planning,original,false);
+ return savePlannedWorkout(removed,{...replacement,id:`moved:${original.id}:${original.day}:${replacement.day}`,recurring:false,changed:true},false);
+}
 
 // Exact local times are resolved in the profile time zone for each occurrence,
 // rather than adding seven 24-hour periods across daylight saving changes.

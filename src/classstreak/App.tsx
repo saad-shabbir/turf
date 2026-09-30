@@ -63,6 +63,7 @@ export default function ClassStreakApp() {
   const [busy, setBusy] = useState(false);
   const [pane,setPane]=useState("home");const [celebrationKey,setCelebrationKey]=useState("");const [clockOffset,setClockOffset]=useState(0);const [tracking,setTracking]=useState("");
   const [observedNow,setObservedNow]=useState(()=>Date.now());
+  useEffect(()=>{const timer=setInterval(()=>{if(AppState.currentState==='active')setObservedNow(Date.now());},30000);return()=>clearInterval(timer);},[]);
   const [editingPlace,setEditingPlace]=useState<string|null>(null);
   const [authId,setAuthId]=useState<string|null>(null);const [contactMatches,setContactMatches]=useState<{id:string;first_name:string}[]>([]);
   const [studioQR,setStudioQR]=useState<{name:string;code:string}|null>(null);
