@@ -8,8 +8,10 @@ September 30, 2026. App source implemented. Hosted database update is pending be
 - Missed-departure recovery, active-visit preservation on re-registration, and guarded server support.
 - Real-account launch with isolated sample studio profiles/feed, adjustable translucent stickers, illustrated history.
 - Exact activity goals 0–7. Server migration 015 is required for goals above four.
-- Typecheck, ESLint and configuration checks pass. Database/domain tests, separate native-adapter tests, and actual-component browser interaction checks pass; details are in the associated validation documents.
+- Typecheck, ESLint and configuration checks pass. All 52 database/domain tests, 10 departure/planning native-adapter tests, 15 browser viewport checks and 10 app interaction checks passed. The release guide passed seven additional browser checks.
 - Interactive actual-component preview: `http://127.0.0.1:4176/review.html?page=home-empty`. No real camera, location, notifications or account writes run in that gallery.
+- Release screenshots and SQL copy buttons: `http://127.0.0.1:4176/release.html` (regenerate with `node scripts/build-release-review.mjs`).
+- Packaged `build/ClassStreak-movement-refresh-awaiting-server.ipa` from JavaScript commit `76b90dc` and unchanged native artifact `324020299bdd8f779ea5a3420667ae56820bca13`. Hermes format, all 165 untouched native archive entries, ZIP integrity and bundle assets passed packaging checks. SHA-256: `8a37273d63d06c41587c7fed847c525d3086f53f1135d2041505bc1541c80e6b`. A private Google Drive copy was uploaded and verified as owner-only; it is marked awaiting the server update.
 
 ## Hosted step
 
