@@ -68,3 +68,8 @@ A safe machine-readable copy is saved at `build/evidence/supabase-pre-revamp-aud
 - iPhone/SideStore IPA delivery and physical climbing-gym test: NOT TESTED by this subtask. Test enter → wait at least the activity minimum → drive/walk away without opening the app; then foreground the app if the system callback was missed. Verify only one session, estimated label for GPS recovery, sensible duration, and no stuck timer.
 - If iOS delivers neither a region callback nor enough usable GPS fixes, software cannot reconstruct an exact historical departure. Force quitting, disabled/insufficient location permission, OS suspension and poor indoor GPS remain real limitations. The existing estimated cap and manual duration correction remain available.
 - This change does not replay held events under a different setup or invent Ifti's missing session. Any historical recovery requires his actual saved evidence, or his own correction.
+
+
+## Hosted completion — September 30
+
+The browser connection recovered. A new read-only audit matched the expected function hash and migration012 baseline. The 013–016 transaction succeeded in the signed-in SQL editor. All 16 post-release checks were true and current record counts were preserved. Detailed hosted identifiers, query links and counts stay in ignored local build evidence. The API schema reload was requested after creating the missing live-studio function; the final verification remained successful.

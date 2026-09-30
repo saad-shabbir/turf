@@ -1,11 +1,13 @@
 # ClassStreak workout refresh — release status
 
-September 30, 2026. The app revisions are implemented and tested locally. The hosted database update is pending: the user returned a matching read-only audit, and the combined guarded update is ready. The desktop browser bridge remains unavailable, so no direct hosted deployment is claimed.
+September 30, 2026. The app revisions are implemented and tested locally. The browser connection recovered, and the guarded hosted update 013–016 was applied and verified directly in Supabase. All 16 release checks passed; the fresh before/after record counts match.
 
 ## Included
 
+- Compact calendar above the dismissible “Off to a great start” checklist and weekly progress. Local-time greetings include “Hello, night owl” and refresh while foregrounded. Planned workouts have confirmed per-day delete/reschedule controls.
+- A roof-and-awning studio facade, inline labeled example regulars, and twelve varied example posts. Missing-board/network errors stay inline without a raw global SQL banner.
 - Warm cream, terracotta, rose and sage styling, illustrated weekly progress and workout history, and the existing five tabs.
-- Home calendar and recurring exact times, editable day-specific workout/focus, and reminders one hour before. Empty Today asks Yes/No/Maybe for a rest day; No/Maybe leads to “Set a reminder so you don’t forget to go.”
+- Home calendar and recurring exact times, editable day-specific workout/focus, and reminders one hour before. Empty Today asks Yes/No for a rest day; No leads to “Set a reminder so you don’t forget to go.”
 - Dismissible, owner-persisted setup checklist with real friend progress toward three. Labeled example feed appears directly; real accounts still launch without demo session totals.
 - Draggable, pinch-resizable translucent photo stickers; no visible size/backdrop controls. Small weekly goal text reads “2/3 goal this week.”
 - Accepted-friend profiles with real weekly progress and a recipient-local-day workout status. Nudges are actual inbox writes with friendship, preference, completed-workout and daily duplicate checks. Failed sends never claim success.
@@ -15,33 +17,27 @@ September 30, 2026. The app revisions are implemented and tested locally. The ho
 ## Validation
 
 - TypeScript, ESLint and configuration checks pass.
-- Database/domain suite: **65 passed**. The final profile/inbox/deployment regressions passed again after the last server edits. Native adapter suites: **21 passed** (6 departure, 4 planning, 2 checklist, 9 Live Activity), each run in its own process because the harness installs shared global mocks.
+- Database/domain suite: **68 passed**. The final profile/inbox/deployment regressions passed again after the last server edits. Native adapter suites: **21 passed** (6 departure, 4 planning, 2 checklist, 9 Live Activity), each run in its own process because the harness installs shared global mocks.
 - Browser checks exercise real app components with isolated fixtures. Phone camera, OS notifications, ActivityKit and GPS are not exercised by the browser.
 - Live Activity lifecycle tests and current screenshot/interaction evidence are documented in `docs/WORKOUT_LIVE_ACTIVITY.md` and ignored `build/gallery/` reports.
 - Release JavaScript compiled successfully. IPA packaging verified the matching Hermes bundle, all 165 unchanged native archive entries, assets and ZIP integrity. No new native dependencies were required.
 
 ## Packaged build
 
-`ClassStreak-workout-refresh-awaiting-server.ipa` is **23,412,731 bytes**. The existing private Drive file was updated in place and its name, size and owner-only permissions were read back successfully. The hosted update below is still pending.
+`ClassStreak-studio-refresh.ipa` is **23,418,707 bytes**. The existing private Drive download is updated in place. Hermes, ZIP integrity, bundled assets and all 165 unchanged native entries passed packaging verification.
 
 - Native commit: `324020299bdd8f779ea5a3420667ae56820bca13`.
-- JavaScript commit: `e95e841e2153e56a38eaaa4175f9a3e1fc586bf6`.
-- JavaScript SHA-256: `817f4f42572d14dc5cd262e0ff78ee3075780edd735b850d2e699cfcc4e3c12b`.
-- IPA SHA-256: `7c3d46cf792ae6b5223579b67b588438a8134ebe73e53d5d13ff91ef8978e0ed`.
+- JavaScript commit: `cdcec107bf1c39bc440cc858ef585069fe1eaf97`.
+- JavaScript SHA-256: `81f2b7d8c2b65cefff8d4f9ec0ada6d34daec9c99c3588c6c9df36d50b020aee`.
+- IPA SHA-256: `f70e948ba613fdc3c552b8ae0ec289c6da56b18fb57d17f94d105efeb4b4d8d5`.
 
-Local provenance is saved in ignored `build/ClassStreak-workout-refresh-awaiting-server.provenance.json`. The package and account-specific download link are kept out of the public source repository.
+Local provenance is saved in ignored `build/ClassStreak-studio-refresh.provenance.json`. Package, keys and private download link stay out of public source. Physical iPhone acceptance is NOT TESTED.
 
-## Hosted step
+## Hosted deployment verified
 
-Existing project: **turf** / `qrehonivhqcgfrjcpzqk`.
+The signed-in SQL editor was used to run a fresh read-only audit, the guarded 013–016 transaction, and the read-only verification. The editor reported success; all **16 verification checks passed**. Current account, place and session counts were preserved. Detailed hosted evidence is stored only in ignored local build artifacts.
 
-The user-reported pre-release audit has **2 Auth users, 2 real profiles, 9 places and 210 sessions**, migration 012 present, and the expected ingest hash `f9848e5f82a5f0ae851b11b6d9cece7c`. No recovery/live-studio backup had been applied. See `docs/DEPARTURE_RECOVERY_VALIDATION.md`.
-
-1. The audit has been reviewed. Refresh `http://127.0.0.1:4176/release.html` to get the latest combined SQL.
-2. Run `supabase/departure-live-studio-release.sql` once. It applies **013–016** transactionally, preserving actual prior function definitions as private rollback copies. It does not reset the database or replay old migrations.
-3. Run `supabase/verify-departure-release.sql`. Every `checks` value should be true. Compare the returned counts, allowing normal app activity, and record the user-returned result.
-
-The rollback restores prior ingest/social/friend-list definitions without deleting records or narrowing goals above four. No remote push service is configured.
+The missing `public.cs_studio_live(uuid)` function is now present and callable only by authenticated users. Friend-profile/inbox-nudge and tracking-recovery functions are installed. No database reset, old-migration replay or deletion was performed. Physical phone acceptance remains pending. No remote push service is configured.
 
 ## iPhone acceptance
 

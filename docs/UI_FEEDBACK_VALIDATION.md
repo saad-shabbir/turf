@@ -19,3 +19,14 @@ Browser artifacts are under `build/gallery/`: `feedback-check.json`, `visual-che
 Live Activity preview is an RN illustration of the SwiftUI layout, not evidence that ActivityKit started on a phone. The local browser's touch emulation does not establish physical iPhone gesture feel, background location delivery, native notifications, camera export, SQLCipher or Lock Screen/Dynamic Island behavior. Those remain physical-device acceptance items.
 
 No hosted SQL was executed as part of this visual validation. `scripts/build-release-review.mjs` only reads the current SQL files and builds copy buttons.
+
+
+## Follow-up: studio, calendar and plan controls
+
+- Local-time greetings cover morning, afternoon, evening and late night; foreground clock refreshes every 30 seconds.
+- Calendar day cells shrink from 86 to 65 points while retaining touch targets. The setup checklist is first below it.
+- Empty today/future days ask Yes/No before the reminder prompt. Existing saved Maybe choices remain readable as a reminder choice.
+- Scheduled workout × opens confirmation, then delete/reschedule. Per-day moves preserve recurring rules and reschedule reminders. Editor defaults to only this day.
+- Studio facade uses a terracotta roof, awning and arched stat windows. Six labeled example regulars appear immediately; twelve example posts use portraits, photos and illustrated workout cards. No fictional visits enter real totals.
+- The hosted missing-function issue was fixed by applying and verifying 013–016. All 16 checks passed with current record counts preserved; detailed evidence remains in ignored local build artifacts.
+- Typecheck, full lint, config and 68 database/domain tests passed. Browser interactions directly verified Yes/No, delete, Undo and reschedule-to-another-day. Phone acceptance is still untested.
