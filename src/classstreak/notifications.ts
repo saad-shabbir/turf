@@ -6,11 +6,15 @@ import {durationLabel,type Snapshot} from "./model";
 import {progress} from "./engine";
 import {quietUntil,reminderPlan} from "./reminder-plan";
 import {track} from './analytics';
+import {loadWeeklyPlanning} from './planningStore';
+import {plannedReminders} from './planning';
+import {reconcilePlannedNotifications} from './planningNotificationSync';
+import {liveSnapshot} from './liveSnapshot';
 Notifications.setNotificationHandler({handleNotification:async()=>({shouldShowBanner:true,shouldShowList:true,shouldPlaySound:false,shouldSetBadge:false})});
 export async function enableNotifications(){return (await Notifications.requestPermissionsAsync()).granted;}
 export async function notifySession(ids:string[]){
  if(AppState.currentState==="active")return;
- const s=await getSnapshot();const stats=progress(s.sessions,s.weeks,s.goals,s.profile.tz);await scheduleReminders(s).catch(()=>{});if(s.profile.notification_preferences.logged===false)return;
+ const s=liveSnapshot(await getSnapshot());const stats=progress(s.sessions,s.weeks,s.goals,s.profile.tz);await scheduleReminders(s).catch(()=>{});if(s.profile.notification_preferences.logged===false)return;
  const sent=await read<string[]>("cs:notified",[]);
  for(const id of ids){if(sent.includes(id))continue;const item=s.sessions.find(x=>x.id===id);if(!item)continue;
   const quiet=quietUntil(new Date(),s.profile.tz);
@@ -26,7 +30,15 @@ export function notificationResponse(handle:(pane:string)=>void){
  const open=(r:Notifications.NotificationResponse)=>{const pane=r.notification.request.content.data?.pane;if(typeof pane==='string'){track('reminder_opened');handle(pane);}Notifications.clearLastNotificationResponse();};
  const subscription=Notifications.addNotificationResponseReceivedListener(open);const initial=Notifications.getLastNotificationResponse();if(initial)open(initial);return subscription;
 }
-export const clearNotifications=()=>Notifications.cancelAllScheduledNotificationsAsync();
+let reminderEpoch=0;
+let suspendedAuthEpoch:number|undefined;
+export async function clearNotifications(){
+ reminderEpoch++;
+ suspendedAuthEpoch=await read('auth_epoch',0).catch(()=>undefined);
+ // Let any in-flight OS request settle, then remove it as part of logout.
+ scheduling=(scheduling??Promise.resolve()).catch(()=>{}).then(()=>Notifications.cancelAllScheduledNotificationsAsync());
+ return scheduling;
+}
 export async function notifyPendingVisit(eventId:string){
  if(AppState.currentState==="active")return;
  const cache=await read<{value:Snapshot}|null>("cs:snapshot",null);if(!cache||cache.value.profile.notification_preferences.logged===false)return;
@@ -34,16 +46,22 @@ export async function notifyPendingVisit(eventId:string){
  await Notifications.scheduleNotificationAsync({identifier:"pending:"+eventId,content:{title:"Your visit is saved on this phone.",body:"Open ClassStreak when you are online to finish syncing.",data:{pane:"home"}},trigger:quiet?{type:Notifications.SchedulableTriggerInputTypes.DATE,date:quiet}:null});
 }
 let scheduling:Promise<void>|undefined;
-export function scheduleReminders(snapshot:Snapshot){
+export function scheduleReminders(input:Snapshot){
+ const snapshot=liveSnapshot(input);
+ const expectedEpoch=reminderEpoch;
  const work=async()=>{
+  if(expectedEpoch!==reminderEpoch||await read('auth_blocked',false)||await read('auth_epoch',0)===suspendedAuthEpoch)return;
+  const cache=await read<{auth:string}|null>('cs:snapshot',null);if(cache?.auth!==snapshot.profile.id)return;
   if(!(await Notifications.getPermissionsAsync()).granted)return;
   await Notifications.setBadgeCountAsync(snapshot.inbox.filter(n=>!n.read_at).length);
-  const planned=reminderPlan(snapshot,new Date());const fingerprint=JSON.stringify(planned);
-  if(await read("cs:reminder_plan","")===fingerprint)return;
-  const existing=await Notifications.getAllScheduledNotificationsAsync();
-  for(const n of existing)if(/^(usual|risk|recap):/.test(n.identifier))await Notifications.cancelScheduledNotificationAsync(n.identifier);
-  for(const n of planned)await Notifications.scheduleNotificationAsync({identifier:n.id,content:{title:n.title,body:n.body,data:{pane:n.pane}},trigger:{type:Notifications.SchedulableTriggerInputTypes.DATE,date:n.at}});
-  await write("cs:reminder_plan",fingerprint);
+  const now=new Date();const weekly=await loadWeeklyPlanning(snapshot);
+  // Keep room below iOS's notification limit for arrival and saved-session alerts.
+  const planned=[...reminderPlan(snapshot,now).filter(n=>!n.id.startsWith('usual:')),...plannedReminders(weekly,snapshot,now)].sort((a,b)=>a.at.getTime()-b.at.getTime()).slice(0,48);
+  await reconcilePlannedNotifications(planned,{
+   list:Notifications.getAllScheduledNotificationsAsync,
+   cancel:Notifications.cancelScheduledNotificationAsync,
+   schedule:async(n,fingerprint)=>{if(expectedEpoch!==reminderEpoch)return;await Notifications.scheduleNotificationAsync({identifier:n.id,content:{title:n.title,body:n.body,data:{pane:n.pane,planning_fingerprint:fingerprint}},trigger:{type:Notifications.SchedulableTriggerInputTypes.DATE,date:n.at}});},
+  });
  };
  scheduling=(scheduling??Promise.resolve()).catch(()=>{}).then(work);return scheduling;
 }

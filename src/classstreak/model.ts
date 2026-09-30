@@ -15,7 +15,7 @@ export type TimeOfDay = "morning" | "midday" | "evening";
 export type Source = "geofence" | "manual" | "seed" | "simulated";
 export const activity = (key: string) => activities.find(a => a.key === key) ?? (key.startsWith("custom:") ? {key: key as ActivityKey, label:key.slice(7), short:key.slice(7), icon:"star", minutes:25, goal:1} : activities[0]);
 export const customKey = (name:string):ActivityKey => `custom:${name.trim().replace(/\s+/g," ").slice(0,40)}`;
-export type Schedule = {activity_key:ActivityKey;days:number[];time:TimeOfDay};
+export type Schedule = {activity_key:ActivityKey;days:number[];time:TimeOfDay;exact_time?:string;reminder_enabled?:boolean};
 export type Goal = { activity_key: ActivityKey; goal: number };
 export type Place = { id: string; venue_id?: string; name: string; google_place_id?: string; activity_key: ActivityKey; lat: number; lng: number; radius_m: number; enabled: boolean; share_name: boolean; last_workout_label?: string };
 export type Session = { id: string; user_id: string; place_id: string | null; venue_id?: string; activity_key: ActivityKey; workout_label: string; started_at: string; ended_at: string; duration_sec: number; source: Source; counted: boolean; verified: boolean; estimated: boolean; week_key: string; day_key: string; place_name?: string; photo_url?: string | null; note?: string; removed_at?: string | null };
@@ -29,7 +29,7 @@ export type Snapshot = { achievements?:{id:string;user_id:string;first_name:stri
 export type Draft = { places?:Place[]; schedules?:Schedule[]; step: number; selected: ActivityKey[]; goals: Record<string, number>; place: Place | null; days: number[]; time: TimeOfDay; theme: ThemeName; first_name: string; last_name: string; gender: string | null; invite_code: string; location_consent: boolean };
 export const newDraft = (): Draft => ({ step: 0, selected: [], goals: {}, place: null, days: [], time: "evening", theme: "clay", first_name: "", last_name: "", gender: null, invite_code: "", location_consent: false });
 export function draftGoals(selected: ActivityKey[], previous: Record<string, number>): Record<string, number> {
-  return Object.fromEntries(selected.map((key, i) => [key, i < 2 ? (previous[key] || activity(key).goal) : (previous[key] ?? 0)]));
+  return Object.fromEntries(selected.map(key => [key, previous[key] ?? activity(key).goal]));
 }
 export const weekDays = ["M", "T", "W", "T", "F", "S", "S"];
 export const fullDays = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];

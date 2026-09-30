@@ -1,9 +1,10 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 const {draftGoals}=await import("../src/classstreak/model.ts");
-test("The pictured three-activity setup has a goal of three, including zero for the hidden gym",()=>{
- const goals=draftGoals(["reformer","yoga","gym"],{});assert.deepEqual(goals,{reformer:2,yoga:1,gym:0});
- assert.equal(Object.values(goals).reduce((a,b)=>a+b,0),3);
+test("Every selected activity has an explicit editable goal and saved zero remains zero",()=>{
+ const goals=draftGoals(["reformer","yoga","gym"],{});assert.deepEqual(goals,{reformer:2,yoga:1,gym:3});
+ assert.equal(Object.values(goals).reduce((a,b)=>a+b,0),6);
+ assert.deepEqual(draftGoals(["gym"],{gym:0}),{gym:0});
 });
 const {evaluateVisit,progress,mondayKey}=await import("../src/classstreak/engine.ts");
 const candidate={place_id:"fixture",activity_key:"reformer",workout_label:"Reformer",entered_at:"2026-09-21T17:00:00Z",source:"simulated",lat:0,lng:0,radius_m:100};
