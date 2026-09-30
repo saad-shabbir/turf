@@ -18,7 +18,18 @@ September 30, 2026. The app revisions are implemented and tested locally. The ho
 - Database/domain suite: **65 passed**. The final profile/inbox/deployment regressions passed again after the last server edits. Native adapter suites: **21 passed** (6 departure, 4 planning, 2 checklist, 9 Live Activity), each run in its own process because the harness installs shared global mocks.
 - Browser checks exercise real app components with isolated fixtures. Phone camera, OS notifications, ActivityKit and GPS are not exercised by the browser.
 - Live Activity lifecycle tests and current screenshot/interaction evidence are documented in `docs/WORKOUT_LIVE_ACTIVITY.md` and ignored `build/gallery/` reports.
-- Updated IPA packaging evidence will be recorded after final compilation. The older movement-refresh awaiting-server upload predates this revision and should not be used as evidence for the new features.
+- Release JavaScript compiled successfully. IPA packaging verified the matching Hermes bundle, all 165 unchanged native archive entries, assets and ZIP integrity. No new native dependencies were required.
+
+## Packaged build
+
+`ClassStreak-workout-refresh-awaiting-server.ipa` is **23,412,731 bytes**. The existing private Drive file was updated in place and its name, size and owner-only permissions were read back successfully. The hosted update below is still pending.
+
+- Native commit: `324020299bdd8f779ea5a3420667ae56820bca13`.
+- JavaScript commit: `e95e841e2153e56a38eaaa4175f9a3e1fc586bf6`.
+- JavaScript SHA-256: `817f4f42572d14dc5cd262e0ff78ee3075780edd735b850d2e699cfcc4e3c12b`.
+- IPA SHA-256: `7c3d46cf792ae6b5223579b67b588438a8134ebe73e53d5d13ff91ef8978e0ed`.
+
+Local provenance is saved in ignored `build/ClassStreak-workout-refresh-awaiting-server.provenance.json`. The package and account-specific download link are kept out of the public source repository.
 
 ## Hosted step
 
