@@ -50,3 +50,9 @@ Prepared September 16, 2026. This register distinguishes user requirements from 
 ## Setup values left blank
 
 Bet amount and currency, starting week, friend's chosen name, user credentials, backend identifiers, exact places and schedules. These are supplied securely during setup, not invented in the code or seeded from this chat.
+
+### Number and boxing-icon follow-up
+
+Updated app stats to Manrope semibold tabular figures, preserving serif editorial headings. Boxing now uses a rounded glove with a thumb and cuff instead of the previous angular outline. Missing server-function responses now show a recovery message without database identifiers; the actual Studio and friend-profile functions were deployed in the preceding release.
+
+Validation: typecheck, ESLint, configuration and seven focused domain/reminder tests passed. Reviewed the weights/boxing goal card in the phone web preview. Packaged JS commit 6cd4bab against the unchanged verified native payload; Hermes compatibility, ZIP integrity and all 165 native entries checked. Physical iPhone installation and visual acceptance remain untested. Updated the existing private Drive IPA in place.
