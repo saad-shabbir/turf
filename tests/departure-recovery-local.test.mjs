@@ -64,3 +64,38 @@ test('editing a place keeps the active arrival geometry until departure, then ap
   await tracking.receiveFixes([loc(fix(now-45000)),loc(fix(now-10000))]);state=await tracking.trackingState();assert.equal(state.candidate,null);assert.equal(state.places[0].lat,1);assert.equal(regions[0].latitude,1);assert.equal(state.next_places,undefined);assert.equal(state.token,'original-token');
  }finally{native.rpcHandler=null;native.networkFails=true;}
 });
+
+
+test('a native exit cannot erase an active workout; drift and re-entry preserve its original timer',async()=>{
+ await setup();
+ const exit={event_id:'boundary-drift',place_id:place.id,kind:'EXIT',source:'geofence',observed_at:new Date(now-60000).toISOString()};
+ await tracking.receiveEvent(exit);
+ assert.equal((await tracking.trackingState()).candidate.visit_id,'arrival');
+ assert.equal((await tracking.trackingState()).candidate.entered_at,candidate.entered_at);
+ assert.ok((await tracking.trackingState()).boundary_exit_at);assert.equal(fixesRunning,true);
+ assert.equal((await(await local.database()).getAllAsync('SELECT payload FROM cs_outbox')).length,0);
+ await tracking.receiveFixes([loc(fix(now-45000,0)),loc(fix(now-10000,0))]);
+ assert.ok((await tracking.trackingState()).candidate);
+ await tracking.receiveEvent({...exit,event_id:'return-inside',kind:'ENTER',observed_at:new Date(now-5000).toISOString()});
+ assert.equal((await tracking.trackingState()).candidate.entered_at,candidate.entered_at);
+ assert.equal((await tracking.trackingState()).boundary_exit_at,null);
+});
+
+test('a real native exit saves only after outside confirmation, using the original capture and one durable exit',async()=>{
+ await setup();
+ await tracking.receiveEvent({event_id:'native-departure',place_id:place.id,kind:'EXIT',source:'geofence',observed_at:new Date(now-60000).toISOString()});
+ await tracking.receiveFixes([loc(fix(now-45000)),loc(fix(now-10000))]);
+ const state=await tracking.trackingState();assert.equal(state.candidate,null);assert.equal(state.boundary_exit_at,null);
+ const rows=await(await local.database()).getAllAsync('SELECT token,payload FROM cs_outbox');assert.equal(rows.length,1);assert.equal(rows[0].token,'original-token');
+ const event=JSON.parse(rows[0].payload);assert.equal(event.recovered,true);assert.equal(event.observed_at,new Date(now-45000).toISOString());
+});
+
+test('Stop remains available without location confirmation and a stale native exit cannot close a newer timer',async()=>{
+ await setup();
+ await tracking.receiveEvent({event_id:'stale-exit',place_id:place.id,kind:'EXIT',source:'geofence',observed_at:new Date(now-7200000).toISOString()});
+ assert.equal((await tracking.trackingState()).boundary_exit_at,undefined);
+ await tracking.receiveEvent({event_id:'pending-exit',place_id:place.id,kind:'EXIT',source:'geofence',observed_at:new Date(now-10000).toISOString()});
+ assert.ok((await tracking.trackingState()).candidate);
+ await tracking.controlWorkout('STOP','arrival');assert.equal((await tracking.trackingState()).candidate,null);assert.equal((await tracking.trackingState()).boundary_exit_at,null);
+ const rows=await(await local.database()).getAllAsync('SELECT payload FROM cs_outbox');assert.equal(rows.length,1);assert.equal(JSON.parse(rows[0].payload).kind,'STOP');
+});

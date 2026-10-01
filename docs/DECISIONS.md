@@ -56,3 +56,12 @@ Bet amount and currency, starting week, friend's chosen name, user credentials, 
 Updated app stats to Manrope semibold tabular figures, preserving serif editorial headings. Boxing now uses a rounded glove with a thumb and cuff instead of the previous angular outline. Missing server-function responses now show a recovery message without database identifiers; the actual Studio and friend-profile functions were deployed in the preceding release.
 
 Validation: typecheck, ESLint, configuration and seven focused domain/reminder tests passed. Reviewed the weights/boxing goal card in the phone web preview. Packaged JS commit 6cd4bab against the unchanged verified native payload; Hermes compatibility, ZIP integrity and all 165 native entries checked. Physical iPhone installation and visual acceptance remain untested. Updated the existing private Drive IPA in place.
+
+
+### Preserve active timers during unconfirmed boundary exits
+
+A member reported an arrival notification and timer followed by a disappearing timer and no recorded workout. Their exact cause is not yet confirmed without device diagnostics. Code inspection identified a reproducible failure path: an individual native geofence EXIT immediately cleared the arrival even when too short to count.
+
+Native boundary exits now retain the active workout and original capture until the existing independent location confirmation observes two fresh, accurate outside readings separated by at least 30 seconds. Re-entry preserves the original timer. Manual Stop remains available if location updates cannot confirm departure. No route outside the saved place is retained. The existing four-hour limit, owner protections and server qualification rules remain unchanged. Debug now reports the active workout, pending boundary confirmation, Lock Screen activity status and last location-task issue.
+
+Validation: nine departure adapter tests, one active-workout adapter test and nine Live Activity adapter tests passed in isolated harness processes; typecheck and ESLint passed. The reported physical-phone failure is not reproduced or proven resolved. This change prevents the identified single-boundary failure path; it does not claim to recover the previously missing workout.

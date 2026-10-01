@@ -12,7 +12,7 @@ import {track} from './analytics';
 import {syncWorkoutLiveActivity} from './workoutLiveActivity';
 export const TASK = "TURF_GEOFENCE_V1";
 export const FIX_TASK = "CLASSSTREAK_FIXES_V1";
-type TrackingState = { owner: string | null; token: string | null; paused: boolean; places: Place[]; candidate: Candidate | null; simulated: Candidate | null; outside: string[]; epoch: number; departure?: DepartureEvidence | null; next_places?:Place[] };
+type TrackingState = { owner: string | null; token: string | null; paused: boolean; places: Place[]; candidate: Candidate | null; simulated: Candidate | null; outside: string[]; epoch: number; departure?: DepartureEvidence | null; next_places?:Place[]; boundary_exit_at?:string|null };
 const initial: TrackingState = { owner: null, token: null, paused: true, places: [], candidate: null, simulated: null, outside: [], epoch: 0 };
 export type VisitEvent = { event_id: string; place_id: string; kind: "ENTER" | "EXIT" | "TIMEOUT" | "SELECT" | "RESTART" | "STOP"; visit_id?: string; activity_key?: string; observed_at: string; source: "geofence" | "simulated"; median_speed?: number; recovered?: boolean; workout_started_at?: string };
 type CaptureIdentity = Pick<TrackingState,'owner'|'token'|'epoch'>;
@@ -49,7 +49,7 @@ async function syncWork() {
  }
 }
 export async function receiveEvent(event: VisitEvent, fix?: {lat:number;lng:number}, expected?:CaptureIdentity) {
- await ensureQueue();let startFixes=false,stopFixes=false,qualified=false,refreshRegions=false;let arrival:Place|undefined;
+ await ensureQueue();let startFixes=false,stopFixes=false,qualified=false,refreshRegions=false,confirmExit=false;let arrival:Place|undefined;
  await transaction(async db=>{
   const state=await read("cs:tracking",initial,db);
   if(expected&&!sameCapture(state,expected))return;
@@ -60,11 +60,27 @@ export async function receiveEvent(event: VisitEvent, fix?: {lat:number;lng:numb
   const key=event.source==="simulated"?"simulated":"candidate";
   let candidate=state[key];let reason="";
   if(event.recovered&&(!candidate||candidate.visit_id!==event.visit_id||candidate.entered_at!==event.workout_started_at))return;
+  // Native region exits can be indoor GPS drift. Keep the durable arrival and
+  // timer until the independent fresh-fix confirmation observes departure.
+  if(event.source==='geofence'&&event.kind==='EXIT'&&!event.recovered&&candidate?.place_id===place.id){
+   if(!Number.isFinite(Date.parse(event.observed_at))||Date.parse(event.observed_at)<Date.parse(candidate.entered_at))return;
+   confirmExit=true;
+   if(!state.boundary_exit_at){
+    const logs=await read<TrackingLog[]>('cs:logs',[],db);
+    logs.push({at:event.observed_at,kind:'EXIT_CHECK',source:'geofence',reason:'Boundary exit received; workout kept open until departure is confirmed',place_id:place.id});
+    await write('cs:logs',logs.slice(-100),db);
+    await write('cs:tracking',{...state,boundary_exit_at:event.observed_at},db);
+   }
+   await write('cs:last_callback',event.observed_at,db);
+   return;
+  }
+  if(event.source==='geofence'&&event.kind==='ENTER'&&candidate?.place_id===place.id){state.boundary_exit_at=null;state.departure=null;}
+
   if(["SELECT","RESTART","STOP"].includes(event.kind)){
    if(event.source!=="geofence"||!candidate||candidate.visit_id!==event.visit_id||candidate.place_id!==place.id)return;
    if(Date.parse(event.observed_at)<Date.parse(candidate.entered_at))throw new Error("Your phone clock changed. Please try again.");
    if(event.kind==="SELECT"){const chosen=activity(event.activity_key??"");if(chosen.key!==event.activity_key)throw new Error("Choose a workout type.");candidate={...candidate,activity_key:chosen.key,workout_label:chosen.label};}
-   else if(event.kind==="RESTART"){candidate={...candidate,entered_at:event.observed_at};state.departure=null;await write("cs:fixes",[],db);}
+   else if(event.kind==="RESTART"){candidate={...candidate,entered_at:event.observed_at};state.departure=null;state.boundary_exit_at=null;await write("cs:fixes",[],db);}
    else {candidate=null;stopFixes=true;qualified=true;state.outside=state.outside.filter(id=>id!==place.id);await write("cs:workout_saved",event.event_id,db);}
   }else if(event.kind==="ENTER"){
    if(candidate)reason="A visit is already open";
@@ -80,7 +96,7 @@ export async function receiveEvent(event: VisitEvent, fix?: {lat:number;lng:numb
     reason=event.recovered?`${result.reason} · departure recovered from location`:result.reason;candidate=null;stopFixes=event.source==="geofence";
    }else reason="Outside region";
   }
-  if(event.source==='geofence'&&(!candidate||startFixes))state.departure=null;
+  if(event.source==='geofence'&&(!candidate||startFixes)){state.departure=null;state.boundary_exit_at=null;}
   if(event.source==='geofence'&&!candidate&&state.next_places){state.places=state.next_places;delete state.next_places;refreshRegions=true;}
   await db.runAsync("INSERT OR IGNORE INTO cs_outbox(event_id,owner,token,payload) VALUES(?,?,?,?)",event.event_id,state.owner,event.source==="simulated"?null:state.token,JSON.stringify(event));
   const logs=await read<TrackingLog[]>("cs:logs",[],db);logs.push({at:event.observed_at,kind:event.kind,source:event.source,reason,place_id:place.id});
@@ -88,7 +104,7 @@ export async function receiveEvent(event: VisitEvent, fix?: {lat:number;lng:numb
  });
  await syncWorkoutLiveActivity().catch(()=>{});
  if(arrival)await notifyArrival(arrival.name,event.event_id).catch(()=>{});
- if(startFixes)await ensureVisitFixes().catch(()=>write('cs:task_error','Arrival saved, but backup location updates could not start. Open the app to check tracking.'));
+ if(startFixes||confirmExit)await ensureVisitFixes().catch(()=>write('cs:task_error','Arrival saved, but backup location updates could not start. Open the app to check tracking.'));
  if(stopFixes&&await Location.hasStartedLocationUpdatesAsync(FIX_TASK))await Location.stopLocationUpdatesAsync(FIX_TASK);
  if(refreshRegions){const state=await trackingState();if(!state.paused)await registerRegions(state).catch(()=>{});}
  await syncVisits().catch(async()=>{if(qualified)await notifyPendingVisit(event.event_id).catch(()=>{});});
@@ -125,7 +141,7 @@ async function registerRegions(state:TrackingState,attempt=0):Promise<void>{
 }
 export async function stopTracking() {
  let token:string|null=null;
- await transaction(async db=>{const s=await read("cs:tracking",initial,db);token=s.token;await write("cs:tracking",{...s,paused:true,candidate:null,departure:null,epoch:s.epoch+1},db);await write("cs:fixes",[],db);});
+ await transaction(async db=>{const s=await read("cs:tracking",initial,db);token=s.token;await write("cs:tracking",{...s,paused:true,candidate:null,departure:null,boundary_exit_at:null,epoch:s.epoch+1},db);await write("cs:fixes",[],db);});
  await syncWorkoutLiveActivity().catch(()=>{});
  if(await Location.hasStartedGeofencingAsync(TASK))await Location.stopGeofencingAsync(TASK);
  if(await Location.hasStartedLocationUpdatesAsync(FIX_TASK))await Location.stopLocationUpdatesAsync(FIX_TASK);

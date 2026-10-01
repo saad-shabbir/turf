@@ -16,7 +16,8 @@ export function Debug({snapshot,action,refresh}:{snapshot:Snapshot;action:Action
   const queue=await db.getFirstAsync<{n:number}>("SELECT count(*) n FROM cs_outbox WHERE owner=?",s.owner).catch(()=>({n:0}));
   const heldRows=await db.getAllAsync<{event_id:string;reason:string;payload:string}>("SELECT o.event_id,h.reason,o.payload FROM cs_outbox o JOIN cs_outbox_holds h ON h.event_id=o.event_id AND h.owner=o.owner WHERE o.owner=? ORDER BY o.seq",s.owner).catch(()=>[]);
   setHeld(heldRows);const error=await read("cs:sync_error","");
-  setDiagnostic(`Location: ${p.status}  -  ${s.paused?"paused":"monitoring"}\nLast GPS fix: ${fix}\nRegistered places: ${s.places.length}  -  Waiting to sync: ${Math.max(0,(queue?.n??0)-heldRows.length)}\nPreserved for review: ${heldRows.length}${error?'\nLast sync: '+safeMessage(new Error(error)):''}`);
+  const taskError=await read("cs:task_error","");const liveStatus=await read("cs:live_activity_status","Not started");
+  setDiagnostic(`Location: ${p.status}  -  ${s.paused?"paused":"monitoring"}\nLast GPS fix: ${fix}\nRegistered places: ${s.places.length}  -  Waiting to sync: ${Math.max(0,(queue?.n??0)-heldRows.length)}\nPreserved for review: ${heldRows.length}\nActive workout: ${s.candidate?s.candidate.workout_label+" since "+new Date(s.candidate.entered_at).toLocaleTimeString():"None"}\nDeparture: ${s.boundary_exit_at?"Checking boundary exit; timer retained":"No boundary exit pending"}\nLock Screen timer: ${liveStatus}${taskError?"\nLast location issue: "+taskError:""}${error?'\nLast sync: '+safeMessage(new Error(error)):''}`);
  };
  useEffect(()=>{const timer=setTimeout(()=>{void update();},0);return()=>clearTimeout(timer);},[]);
  const run=(fn:()=>Promise<void>)=>{setBusy(true);void fn().then(refresh).then(update).catch(e=>action("error",{error:e})).finally(()=>setBusy(false));};
