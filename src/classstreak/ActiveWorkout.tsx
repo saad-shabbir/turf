@@ -15,7 +15,8 @@ export function ActiveWorkout({candidate:c,snapshot:s,action,compact=false,busy=
  if(!c?.visit_id)return compact?null:<Empty title="Ready for your next workout." body="Your timer appears when an arrival at a saved place is detected." action="Back to Home" onPress={()=>action('navigate',{pane:'home'})}/>;
  const send=(name:string,key?:string)=>action(name,{visit_id:c.visit_id,activity_key:key});
  const keys=[...new Set([...activities.map(a=>a.key),...s.goals.map(g=>g.activity_key),...s.pending_goals.map(g=>g.activity_key),c.activity_key])];
- return <Card style={{gap:16}}><Txt bold size={12}>WORKOUT IN PROGRESS</Txt><Txt serif size={28}>{c.workout_label}</Txt><Txt muted size={12}>{s.places.find(p=>p.id===c.place_id)?.name??'Your saved place'}</Txt>
+ return <Card style={{gap:16}}><Txt bold size={12}>WORKOUT IN PROGRESS</Txt><Txt serif size={28}>{c.workout_label}</Txt><Txt muted size={12}>{s.places.find(p=>p.id===c.place_id)?.name??(c.source==='manual'?'Location off · manual workout':'Your saved place')}</Txt>
+  {c.source==='manual'&&<Txt muted size={12}>Started by you. Tap Stop when you finish; leaving won’t stop this timer. Saved as a manual workout.</Txt>}
   <Txt size={44} bold style={{fontVariant:['tabular-nums'],color:t.accent}}>{elapsedWorkout(c.entered_at,now)}</Txt>
   {compact?<Button secondary title="Choose workout / view timer" onPress={()=>action('navigate',{pane:'active-workout'})}/>:<><Txt bold>What are you hitting today?</Txt><Row style={{flexWrap:'wrap'}}>{keys.map(key=><View key={key} style={{maxWidth:'100%'}}><Chip title={activity(key).label} selected={c.activity_key===key} onPress={()=>{if(!busy)send('workout_select',key);}}/></View>)}</Row><CustomActivity onAdd={key=>{if(!busy)send('workout_select',key);}}/></>}
   <Button title={busy?'Saving…':'Stop workout'} disabled={busy} onPress={()=>send('workout_stop')}/>

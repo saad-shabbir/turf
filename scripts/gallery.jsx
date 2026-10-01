@@ -37,6 +37,7 @@ function Gallery(){
  const s={...data,...(empty?{sessions:[],friends:[],feed:[],inbox:[],weeks:[],achievements:[]}:{}),...(friendFlow?{friends:[galleryFriend],feed:[galleryFriendFeed]}:{}),profile:{...data.profile,id:empty?'preview-empty-owner':data.profile.id,theme,show_on_board:false}};
  const go=target=>{if(target==='home-empty')setDataMode('empty');if(target==='home-sample')setDataMode('example');setPage(target);setMessage('');const query=new URLSearchParams(location.search);query.set('page',target);history.replaceState({},'',`${location.pathname}?${query}`);};
  const action=(name,payload={})=>{
+  if(name==='workout_start'){setLive({visit_id:'preview-button',place_id:'',activity_key:payload.activity_key,workout_label:activity(payload.activity_key).label,entered_at:new Date().toISOString(),source:'manual',lat:0,lng:0,radius_m:0});go('active-workout');return;}
   if(name==='friend_snapshot'){setData(payload.snapshot);return;}
   if(name==='workout_select'){setLive(c=>({...c,activity_key:payload.activity_key,workout_label:activity(payload.activity_key).label}));return;}
   if(name==='workout_restart'){setLive(c=>({...c,entered_at:new Date().toISOString()}));return;}

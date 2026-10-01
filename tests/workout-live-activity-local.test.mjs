@@ -100,3 +100,10 @@ test('Simulations, invalid/future/expired arrivals cannot expose a live workout'
   const {state}=await prepare();Object.assign(state.candidate,patch);await local.write('cs:tracking',state);await sync();assert.equal(instances.size,0);
  }
 });
+
+test('a button-started timer works with automatic tracking paused and clears when stopped',async()=>{
+ const {state}=await prepare();await local.write('cs:tracking',{...state,paused:true,candidate:null});
+ await local.write('cs:button_workout',{owner:state.owner,candidate:{...state.candidate,source:'manual',place_id:''}});
+ await sync();assert.equal(instances.size,1);assert.equal([...instances.values()][0].props.label,'Weights');
+ await local.write('cs:button_workout',null);await sync();assert.equal(instances.size,0);
+});

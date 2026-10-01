@@ -1,3 +1,4 @@
+import {buttonWorkout,syncButtonWorkouts,type ButtonWorkout} from './buttonWorkout';
 import {PreservedVisits} from './PreservedVisits';
 import React, {useEffect,useState} from "react";
 import {View,Switch} from "react-native";
@@ -16,8 +17,9 @@ export function Debug({snapshot,action,refresh}:{snapshot:Snapshot;action:Action
   const queue=await db.getFirstAsync<{n:number}>("SELECT count(*) n FROM cs_outbox WHERE owner=?",s.owner).catch(()=>({n:0}));
   const heldRows=await db.getAllAsync<{event_id:string;reason:string;payload:string}>("SELECT o.event_id,h.reason,o.payload FROM cs_outbox o JOIN cs_outbox_holds h ON h.event_id=o.event_id AND h.owner=o.owner WHERE o.owner=? ORDER BY o.seq",s.owner).catch(()=>[]);
   setHeld(heldRows);const error=await read("cs:sync_error","");
+  const manual=await buttonWorkout();const pending=await read<ButtonWorkout[]>('cs:button_pending',[]);
   const taskError=await read("cs:task_error","");const liveStatus=await read("cs:live_activity_status","Not started");
-  setDiagnostic(`Location: ${p.status}  -  ${s.paused?"paused":"monitoring"}\nLast GPS fix: ${fix}\nRegistered places: ${s.places.length}  -  Waiting to sync: ${Math.max(0,(queue?.n??0)-heldRows.length)}\nPreserved for review: ${heldRows.length}\nActive workout: ${s.candidate?s.candidate.workout_label+" since "+new Date(s.candidate.entered_at).toLocaleTimeString():"None"}\nDeparture: ${s.boundary_exit_at?"Checking boundary exit; timer retained":"No boundary exit pending"}\nLock Screen timer: ${liveStatus}${taskError?"\nLast location issue: "+taskError:""}${error?'\nLast sync: '+safeMessage(new Error(error)):''}`);
+  setDiagnostic(`Location: ${p.status}  -  ${s.paused?"paused":"monitoring"}\nLast GPS fix: ${fix}\nRegistered places: ${s.places.length}  -  Waiting to sync: ${Math.max(0,(queue?.n??0)-heldRows.length)}\nPreserved for review: ${heldRows.length}\nActive workout: ${s.candidate?s.candidate.workout_label+" since "+new Date(s.candidate.entered_at).toLocaleTimeString():"None"}\nDeparture: ${s.boundary_exit_at?"Checking boundary exit; timer retained":"No boundary exit pending"}\nManual timer: ${manual?.candidate.workout_label??"None"}\nManual workouts waiting to sync: ${pending.length}\nLock Screen timer: ${liveStatus}${taskError?"\nLast location issue: "+taskError:""}${error?'\nLast sync: '+safeMessage(new Error(error)):''}`);
  };
  useEffect(()=>{const timer=setTimeout(()=>{void update();},0);return()=>clearTimeout(timer);},[]);
  const run=(fn:()=>Promise<void>)=>{setBusy(true);void fn().then(refresh).then(update).catch(e=>action("error",{error:e})).finally(()=>setBusy(false));};
@@ -30,7 +32,7 @@ export function Debug({snapshot,action,refresh}:{snapshot:Snapshot;action:Action
   <Button secondary title="Run nightly rollup now" onPress={()=>action("rollup")}/><Button secondary title="Load demo friends" onPress={()=>action("seed_demo")}/><Button secondary title="Remove demo friends" onPress={()=>action("remove_demo")}/>
   <Card><Row><Txt style={{flex:1}}>Show simulated sessions to friends</Txt><Switch accessibilityLabel="Show simulated sessions to friends" value={snapshot.profile.share_simulated} onValueChange={share_simulated=>action("settings",{kind:"profile",payload:{share_simulated}})}/></Row><Txt size={11} muted>Friends see a simulated label. Studio boards always exclude them.</Txt></Card>
   <Button secondary title="Re-register geofences" onPress={()=>run(startTracking)}/><Button secondary title="Reset onboarding" onPress={()=>action("reset_onboarding")}/><Button secondary title="Send me a test reminder" onPress={()=>action("test_reminder")}/>
-  <Button secondary title="Retry saved visits" disabled={busy} onPress={()=>run(syncVisits)}/>
+  <Button secondary title="Retry saved visits" disabled={busy} onPress={()=>run(async()=>{await syncVisits();await syncButtonWorkouts();})}/>
   <Card><Txt size={12}>{diagnostic}</Txt></Card>
   <PreservedVisits held={held} snapshot={snapshot} action={action}/>
   {logs.slice(-12).reverse().map((l,i)=><Card key={i}><Txt size={11}>{l.source} · {l.kind} · {new Date(l.at).toLocaleTimeString()}</Txt><Txt size={12}>{l.reason}</Txt></Card>)}

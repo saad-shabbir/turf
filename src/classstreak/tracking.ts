@@ -53,6 +53,8 @@ export async function receiveEvent(event: VisitEvent, fix?: {lat:number;lng:numb
  await transaction(async db=>{
   const state=await read("cs:tracking",initial,db);
   if(expected&&!sameCapture(state,expected))return;
+  const button=await read<{owner:string}|null>("cs:button_workout",null,db);
+  if(event.source==="geofence"&&button?.owner===state.owner)return;
   if(!state.owner|| (event.source==="geofence"&&state.paused))return;
   if(await db.getFirstAsync("SELECT event_id FROM cs_outbox WHERE event_id=?",event.event_id))return;
   let place=state.places.find(p=>p.id===event.place_id&&p.enabled);if(!place)return;

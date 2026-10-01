@@ -1,3 +1,4 @@
+import {buttonWorkout,startButtonWorkout,controlButtonWorkout,syncButtonWorkouts} from './buttonWorkout';
 import {ActiveWorkout} from "./ActiveWorkout";
 import type {Candidate} from "./engine";
 import React, { useCallback, useEffect, useRef, useState } from "react";
@@ -79,7 +80,7 @@ export default function ClassStreakApp() {
     setSignedIn(!!data.session);
     setAuthId(data.session?.user.id??null);
     if (!data.session) { demoPreview.current=false; setSnapshot(null);try{updateWidget(null);}catch{}await clearWorkoutLiveActivity().catch(()=>{});return; }
-    try { const raw = await getSnapshot();const value=demoPreview.current?raw:liveSnapshot(raw);if(epoch!==authEpoch.current)return;setSnapshot(value); await write("cs:snapshot", { auth: data.session.user.id, value:{...value,friends:[],feed:[],inbox:[],achievements:[]} });setClockOffset(await read("cs:clock_offset",0));setTracking(await trackingNotice(value));
+    try { await syncButtonWorkouts().catch(()=>{}); const raw = await getSnapshot();const value=demoPreview.current?raw:liveSnapshot(raw);if(epoch!==authEpoch.current)return;setSnapshot(value); await write("cs:snapshot", { auth: data.session.user.id, value:{...value,friends:[],feed:[],inbox:[],achievements:[]} });setClockOffset(await read("cs:clock_offset",0));setTracking(await trackingNotice(value));
       try{updateWidget(value);}catch{}void syncHealth(value).catch(()=>{});
       void syncWorkoutLiveActivity({resume:true}).catch(()=>{});
       void scheduleReminders(value).catch(()=>{});
@@ -123,7 +124,7 @@ export default function ClassStreakApp() {
   useEffect(()=>{
     if(!signedIn)return;
     let cancelled=false;
-    const update=async()=>{if(AppState.currentState!=="active")return;const state=await trackingState();if(!cancelled)setActiveWorkout(state.owner===authId&&!state.paused?state.candidate:null);};
+    const update=async()=>{if(AppState.currentState!=="active")return;const state=await trackingState();const button=await buttonWorkout();if(!cancelled)setActiveWorkout(button?.owner===authId?button.candidate:state.owner===authId&&!state.paused?state.candidate:null);};
     void update().catch(()=>{});const timer=setInterval(()=>void update().catch(()=>{}),2000);
     return()=>{cancelled=true;clearInterval(timer);};
   },[signedIn,authId]);
@@ -153,10 +154,11 @@ export default function ClassStreakApp() {
     if(name==="sign_out"){Alert.alert("Sign out?","Saved server sessions stay in your account. Any visits still waiting to sync on this phone will be removed.",[{text:"Cancel",style:"cancel"},{text:"Sign out",style:"destructive",onPress:()=>run(signOut)}]);return;}
     if(name==="reset_onboarding"){run(async()=>{await stopTracking();await write("cs:draft",newDraft());setDraft(newDraft());setSnapshot(null);setPane("home");});return;}
     run(async()=>{
+      if(name==="workout_start"&&snapshot){const c=await startButtonWorkout(snapshot,String(payload.activity_key));setActiveWorkout(c);setPane("active-workout");return;}
       if(name.startsWith("workout_")){
         const kind=name==="workout_stop"?"STOP":name==="workout_restart"?"RESTART":"SELECT";
-        await controlWorkout(kind,String(payload.visit_id),payload.activity_key?String(payload.activity_key):undefined);
-        setActiveWorkout((await trackingState()).candidate);
+        if(!await controlButtonWorkout(kind,String(payload.visit_id),payload.activity_key?String(payload.activity_key):undefined))await controlWorkout(kind,String(payload.visit_id),payload.activity_key?String(payload.activity_key):undefined);
+        setActiveWorkout((await buttonWorkout())?.candidate??(await trackingState()).candidate);
         if(kind==="STOP"){setPane("home");setMessage("Workout saved on this iPhone. It will sync when connected.");await refresh().catch(()=>{});}
         return;
       }

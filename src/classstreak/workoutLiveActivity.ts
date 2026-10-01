@@ -31,7 +31,9 @@ async function reconcile(ticket:number,resume:boolean){
  if(!workoutActivityDriver.supported)return;
  if(suspended&&!resume)return;
  const epoch=await read('auth_epoch',0);
- const state=await read<State>('cs:tracking',{owner:null,paused:true,candidate:null});
+ let state=await read<State>('cs:tracking',{owner:null,paused:true,candidate:null});
+ const button=await read<{owner:string;candidate:Candidate}|null>('cs:button_workout',null);
+ if(button)state={owner:button.owner,paused:false,candidate:button.candidate};
  const cache=await read<{auth:string;value:Snapshot}|null>('cs:snapshot',null);
  const binding=await read<Binding|null>('cs:live_activity',null);
  const blocked=await read('auth_blocked',false);
@@ -40,7 +42,7 @@ async function reconcile(ticket:number,resume:boolean){
  if(resume&&ticket===generation&&!blocked&&state.owner&&cache?.auth===state.owner&&await read('auth_epoch',0)===epoch)suspended=false;
  if(suspended)return;
  const c=state.candidate;
- const allowed=!blocked&&!state.paused&&state.owner&&cache?.auth===state.owner&&c?.visit_id&&c.source==='geofence'&&Number.isFinite(Date.parse(c.entered_at))&&Date.parse(c.entered_at)<=Date.now()&&Date.now()-Date.parse(c.entered_at)<14400000;
+ const allowed=!blocked&&!state.paused&&state.owner&&cache?.auth===state.owner&&c?.visit_id&&(c.source==='geofence'||c.source==='manual')&&Number.isFinite(Date.parse(c.entered_at))&&Date.parse(c.entered_at)<=Date.now()&&Date.now()-Date.parse(c.entered_at)<14400000;
  let instances;
  try{instances=workoutActivityDriver.list();}catch{await write('cs:live_activity_status','unavailable');return;}
  if(!allowed){for(const item of instances)await item.end('immediate');await write('cs:live_activity',null);await write('cs:live_activity_status','none');return;}
@@ -62,7 +64,8 @@ async function reconcile(ticket:number,resume:boolean){
    if(AppState.currentState!=='active'){await write('cs:live_activity_status','pending');return;}
    current=workoutActivityDriver.start(props,staleDate);
   }else if(binding?.fingerprint!==fingerprint)await current.update(props,staleDate);
-  const latest=await read<State>('cs:tracking',{owner:null,paused:true,candidate:null});
+  let latest=await read<State>('cs:tracking',{owner:null,paused:true,candidate:null});
+  const buttonNow=await read<{owner:string;candidate:Candidate}|null>('cs:button_workout',null);if(buttonNow)latest={owner:buttonNow.owner,paused:false,candidate:buttonNow.candidate};
   if(ticket!==generation||await read('auth_epoch',0)!==epoch||await read('auth_blocked',false)||latest.owner!==state.owner||latest.paused||latest.candidate?.visit_id!==c!.visit_id){await current.end('immediate');return;}
   await write('cs:live_activity',{id:current.getId(),owner:state.owner,visit:c!.visit_id,fingerprint});
   await write('cs:live_activity_status','active');
