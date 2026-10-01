@@ -13,8 +13,9 @@
 # Generated/build output
 node_modules/
 .expo/
-ios/
-android/
+.expo-home/
+/ios/
+/android/
 build/
 dist/
 coverage/

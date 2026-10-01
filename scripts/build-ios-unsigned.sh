@@ -25,22 +25,21 @@ else
   echo 'FIRST NATIVE RESOLUTION: Podfile.lock must be reviewed and committed before claiming reproducibility.' | tee -a build/toolchain.txt
   (cd ios && pod _1.17.0_ install)
   shasum -a 256 ios/Podfile.lock >> build/toolchain.txt
-  echo 'TURF_POD_LOCK_BEGIN'
-  cat ios/Podfile.lock
-  echo 'TURF_POD_LOCK_END'
+  cp ios/Podfile.lock build/Podfile.lock
 fi
-[[ -d ios/Turf.xcworkspace ]] || { echo 'Expected generated Turf workspace missing'; exit 1; }
-xcodebuild -list -json -workspace ios/Turf.xcworkspace > build/workspace.json
-python3 -c 'import json; assert "Turf" in json.load(open("build/workspace.json"))["workspace"]["schemes"]'
-xcodebuild -workspace ios/Turf.xcworkspace -scheme Turf -configuration Release -sdk iphoneos \
+[[ -d ios/ClassStreak.xcworkspace ]] || { echo 'Expected generated ClassStreak workspace missing'; exit 1; }
+cp ios/Podfile.lock build/Podfile.lock
+xcodebuild -list -json -workspace ios/ClassStreak.xcworkspace > build/workspace.json
+python3 -c 'import json; assert "ClassStreak" in json.load(open("build/workspace.json"))["workspace"]["schemes"]'
+xcodebuild -workspace ios/ClassStreak.xcworkspace -scheme ClassStreak -configuration Release -sdk iphoneos \
   -destination 'generic/platform=iOS' -derivedDataPath "$PWD/build/DerivedData" \
   CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY='' DEVELOPMENT_TEAM='' build
-app="$PWD/build/DerivedData/Build/Products/Release-iphoneos/Turf.app"
+app="$PWD/build/DerivedData/Build/Products/Release-iphoneos/ClassStreak.app"
 [[ -d "$app" && -s "$app/main.jsbundle" ]] || { echo 'Standalone Release app/bundle missing'; exit 1; }
 package="$(mktemp -d "$PWD/build/package.XXXXXX")"
 mkdir "$package/Payload"
-ditto "$app" "$package/Payload/Turf.app"
-(cd "$package" && zip -q -r -y "$OLDPWD/build/Turf-unsigned.ipa" Payload)
-bash scripts/verify-ipa.sh build/Turf-unsigned.ipa
-(cd build && shasum -a 256 Turf-unsigned.ipa > Turf-unsigned.ipa.sha256)
+ditto "$app" "$package/Payload/ClassStreak.app"
+(cd "$package" && zip -q -r -y "$OLDPWD/build/ClassStreak-unsigned.ipa" Payload)
+bash scripts/verify-ipa.sh build/ClassStreak-unsigned.ipa
+(cd build && shasum -a 256 ClassStreak-unsigned.ipa > ClassStreak-unsigned.ipa.sha256)
 echo 'Device Release packaged and inspected. SideStore and field acceptance remain NOT TESTED.'

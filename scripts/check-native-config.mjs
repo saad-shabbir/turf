@@ -7,11 +7,14 @@ assert.equal(ios.podfileProperties["expo.sqlite.useSQLCipher"], "true");
 assert.equal(ios.expoPlist.EXUpdatesEnabled, false);
 assert.ok(ios.infoPlist.NSLocationWhenInUseUsageDescription);
 assert.ok(ios.infoPlist.NSLocationAlwaysAndWhenInUseUsageDescription);
-assert.deepEqual(ios.entitlements, {});
+assert.equal(ios.entitlements['com.apple.developer.healthkit'],true);
+assert.ok(ios.entitlements['com.apple.security.application-groups'].includes('group.com.turf.privatealpha'));
+assert.equal(ios.entitlements['aps-environment'],undefined);
+assert.ok(ios.infoPlist.NSHealthShareUsageDescription);
 assert.equal(
   ios.infoPlist.NSAppTransportSecurity.NSAllowsArbitraryLoads,
   false,
 );
 console.log(
-  "PASS: generated native configuration, SQLCipher, location-only modes, no restricted entitlements",
+  "PASS: generated native configuration, SQLCipher, location-only modes, Health and widget app group, no APNs",
 );

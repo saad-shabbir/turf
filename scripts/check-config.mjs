@@ -10,10 +10,8 @@ for (const [name, version] of Object.entries({
   assert.equal(lock.packages["node_modules/" + name].version, version);
 }
 for (const forbidden of [
-  "expo-dev-client",
-  "expo-notifications",
   "expo-apple-authentication",
-  "react-native-maps",
+  "react-native-purchases",
 ])
   assert.ok(!pkg.dependencies[forbidden]);
 const entry = readFileSync("index.ts", "utf8");
@@ -39,5 +37,5 @@ if (process.env.TURF_REQUIRE_BACKEND === "1") {
   );
 }
 console.log(
-  "PASS: exact JS locks, entry ordering, required native configuration, M1 dependency boundary",
+  "PASS: exact JS locks, entry ordering, SQLCipher, background location and ClassStreak scope",
 );
