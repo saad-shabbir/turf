@@ -26,7 +26,7 @@ async function ensureQueue() { await (await database()).execAsync("CREATE TABLE 
 let syncing: Promise<void> | undefined;
 export function syncVisits() { syncing ??= syncWork().catch(async error=>{await write("cs:sync_error",error instanceof Error?error.message:"NETWORK");throw error;}).finally(() => { syncing=undefined; });return syncing; }
 async function syncWork() {
- await ensureQueue();const owner=await authenticatedOwner();
+ await write("cs:sync_attempt",new Date().toISOString());await ensureQueue();const owner=await authenticatedOwner();
  for(let batch=0;batch<10;batch++){
   const rows=await (await database()).getAllAsync<{event_id:string;token:string|null;payload:string}>("SELECT event_id,token,payload FROM cs_outbox WHERE owner=? AND NOT EXISTS(SELECT 1 FROM cs_outbox_holds h WHERE h.event_id=cs_outbox.event_id AND h.owner=cs_outbox.owner) ORDER BY seq LIMIT 40",owner);
   if(!rows.length){await write("cs:sync_error","");return;}

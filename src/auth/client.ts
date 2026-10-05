@@ -29,7 +29,7 @@ export function backend() {
     global: {
       fetch: async (input, init) => {
         const controller = new AbortController();
-        const timer = setTimeout(() => controller.abort(), 5000);
+        const timer = setTimeout(() => controller.abort(), 20000);
         try {
           return await fetch(input, { ...init, signal: controller.signal });
         } finally {
