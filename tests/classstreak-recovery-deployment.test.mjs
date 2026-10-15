@@ -18,7 +18,9 @@ test('incremental release retains revoked rollbacks and restores ingest and soci
   await actor(db,A);await rpc(db,'cs_bootstrap',[{first_name:'Existing',selected:['gym'],goals:{gym:3}}]);await db.exec('reset role');
   const fingerprint="select md5(pg_get_functiondef('public.cs_ingest(jsonb,uuid)'::regprocedure)) hash,md5(pg_get_functiondef('public.cs_social(text,jsonb)'::regprocedure)) social_hash,md5(pg_get_functiondef('classstreak.friend_list(uuid)'::regprocedure)) friend_hash,(select count(*) from auth.users) users";
   const before=(await db.query(fingerprint)).rows[0];
-  await db.exec(await readFile('supabase/departure-live-studio-release.sql','utf8'));
+  // The release guard pins the hosted cs_ingest text; PGlite prints the same function differently.
+  const release=await readFile('supabase/departure-live-studio-release.sql','utf8');assert.ok(release.includes("'f9848e5f82a5f0ae851b11b6d9cece7c'"));
+  await db.exec(release.replace("'f9848e5f82a5f0ae851b11b6d9cece7c'",`'${before.hash}'`));
   let result=(await db.query("select has_function_privilege('authenticated','public.cs_ingest_before_departure_recovery(jsonb,uuid)','EXECUTE') backup_access,has_function_privilege('anon','public.cs_studio_live(uuid)','EXECUTE') anonymous_live_access,position('recovered' in pg_get_functiondef('public.cs_ingest(jsonb,uuid)'::regprocedure))>0 recovery")).rows[0];
   assert.equal(result.backup_access,false);assert.equal(result.anonymous_live_access,false);assert.equal(result.recovery,true);
   const verification=await db.exec(await readFile('supabase/verify-departure-release.sql','utf8'));
