@@ -12,9 +12,6 @@ export async function matchContacts(){
 }
 export const copyInvite=(code:string)=>Clipboard.setStringAsync("ClassStreak: "+code);
 export const shareInvite=(code:string)=>Share.share({message:`Join me on ClassStreak. ${inviteLink(code)}\nFriend code: ${code}`});
-export async function clipboardSetup(){
- const text=await Clipboard.getStringAsync();return {invite_code:text.match(/(?:ClassStreak:\s*|\/j\/)([A-Z0-9]{12})(?:\b|$)/i)?.[1]?.toUpperCase(),studio_code:text.match(/(?:ClassStreak studio:\s*|\/s\/)([0-9a-f-]{36})(?:\b|$)/i)?.[1]};
-}
 export function subscribeSocial(authId:string,refresh:()=>Promise<void>){
  let refreshing=false;const reload=()=>{if(refreshing||AppState.currentState!=="active")return;refreshing=true;void refresh().finally(()=>{refreshing=false;}).catch(()=>{});};
  const channel=backend().channel("cs:"+authId).on("postgres_changes",{event:"*",schema:"public",table:"cs_revisions",filter:"auth_id=eq."+authId},reload).subscribe();

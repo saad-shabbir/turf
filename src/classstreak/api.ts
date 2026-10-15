@@ -1,11 +1,11 @@
-import { backend, configured, authenticatedOwner } from "../auth/client";
+import { backend, configured, authenticatedOwner, rpcRetryingClockSkew } from "../auth/client";
 import type { Draft, Snapshot } from "./model";
 import { write } from "../db/local";
 import {track} from './analytics';
 export { configured };
 export async function call<T>(name: string, args: Record<string, unknown> = {}): Promise<T> {
   await authenticatedOwner();
-  const { data, error } = await backend().rpc(name, args);
+  const { data, error } = await rpcRetryingClockSkew(name, args);
   if (error) throw new Error(error.message);
   const p=(args.payload??{}) as Record<string,unknown>;
   if(name==='cs_session')track(args.action==='remove'?'session_removed':args.action==='edit'?'workout_type_edited':'session_logged',args.action==='manual'?{source:'manual',activity:String(p.activity_key),duration:Number(p.minutes)*60}:{});
