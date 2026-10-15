@@ -58,8 +58,9 @@ export async function authenticatedOwner() {
 }
 // A token refreshed moments ago can reach the database before its clock passes the
 // token's issue time, so PostgREST answers PGRST303 "JWT issued at future". Wait and retry.
-const issuedInFuture = (error: { code?: string; message?: string } | null) =>
-  !!error && (error.code === "PGRST303" || /JWT issued at future/i.test(error.message ?? ""));
+// Other PGRST303 errors, such as "JWT expired", would fail again with the same token.
+const issuedInFuture = (error: { message?: string } | null) =>
+  !!error && /JWT issued at future|JWT not yet valid/i.test(error.message ?? "");
 export async function rpcRetryingClockSkew(name: string, args: Record<string, unknown>) {
   let result = await backend().rpc(name, args);
   for (const wait of [1000, 3000, 6000, 10000]) {
