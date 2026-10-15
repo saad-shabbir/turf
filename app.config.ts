@@ -2,14 +2,26 @@ import type { ExpoConfig } from "expo/config";
 const config: ExpoConfig = {
   name: "ClassStreak",
   slug: "turf",
+  owner: "saadpm1",
   version: "2.0.0",
+  runtimeVersion: { policy: "fingerprint" },
+  updates: { url: "https://u.expo.dev/75c75ece-53c4-4a69-8989-43513fe97cae" },
   scheme: "turf",
+  extra: {
+    eas: {
+      projectId: "75c75ece-53c4-4a69-8989-43513fe97cae",
+    },
+  },
   icon:"./assets/icon.png",
   platforms: ["ios"],
   ios: {
     bundleIdentifier: "com.turf.privatealpha",
+    appleTeamId: "YBRL6P4725",
     buildNumber: "2",
     supportsTablet: false,
+    infoPlist: {
+      ITSAppUsesNonExemptEncryption: false,
+    },
   },
   plugins: [
     "expo-router",
