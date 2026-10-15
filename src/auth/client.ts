@@ -56,6 +56,19 @@ export async function authenticatedOwner() {
   await bindOwner(session.user.id);
   return session.user.id;
 }
+// A token refreshed moments ago can reach the database before its clock passes the
+// token's issue time, so PostgREST answers PGRST303 "JWT issued at future". Wait and retry.
+const issuedInFuture = (error: { code?: string; message?: string } | null) =>
+  !!error && (error.code === "PGRST303" || /JWT issued at future/i.test(error.message ?? ""));
+export async function rpcRetryingClockSkew(name: string, args: Record<string, unknown>) {
+  let result = await backend().rpc(name, args);
+  for (const wait of [1000, 3000, 6000, 10000]) {
+    if (!issuedInFuture(result.error)) break;
+    await new Promise(resolve => setTimeout(resolve, wait));
+    result = await backend().rpc(name, args);
+  }
+  return result;
+}
 // RPC return map stays coupled to the SQL contract. Generated catalog bindings
 // are produced by scripts/generate-db-types.mjs against the disposable database.
 type Rpc = {
@@ -101,7 +114,7 @@ export async function rpc<K extends keyof Rpc>(
   name: K,
   args: Rpc[K]["args"],
 ): Promise<Rpc[K]["result"]> {
-  const { data, error } = await backend().rpc(name, args);
+  const { data, error } = await rpcRetryingClockSkew(name, args);
   if (error) throw new Error(error.message);
   return data as Rpc[K]["result"];
 }

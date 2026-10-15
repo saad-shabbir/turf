@@ -25,7 +25,8 @@ import type {Action} from "./SessionScreens";
 import {Friends,AddFriends} from "./Friends";
 import {FriendProfile} from './FriendProfile';
 import {Scanner} from "./Scanner";
-import {clipboardSetup,copyInvite,matchContacts,shareInvite,subscribeSocial} from "./social";
+import {copyInvite,matchContacts,shareInvite,subscribeSocial} from "./social";
+import {pastedCodes} from "./clipboardCodes";
 import * as Haptics from "expo-haptics";
 import {Post,Celebration} from "./Post";
 import {syncPhotos,discardQueuedPhotos} from "./photos";
@@ -96,7 +97,7 @@ export default function ClassStreakApp() {
   }, [setSnapshot]);
   const run = (action: () => Promise<void>) => { setBusy(true); setMessage(""); void action().catch(e => setMessage(safeMessage(e))).finally(() => setBusy(false)); };
   useEffect(() => {
-    void (async () => { const saved=await read("cs:draft", newDraft());if(!await read("cs:clipboard_checked",false)){const codes=await clipboardSetup().catch(()=>undefined);if(codes?.invite_code)saved.invite_code=codes.invite_code;if(codes?.studio_code&&configured){const {data}=await backend().rpc("cs_studio_preview",{code:codes.studio_code});if(data){saved.place={...data,id:""};await write("cs:pending_studio",true);}}await write("cs:clipboard_checked",true);await write("cs:draft",saved);}setDraft(previous=>({...saved,...(previous.invite_code?{invite_code:previous.invite_code}:{}),...(previous.place?{place:previous.place}:{})})); await refresh(); })().catch(e => setMessage(safeMessage(e))).finally(() => setReady(true));
+    void (async () => { const saved=await read("cs:draft", newDraft());setDraft(previous=>({...saved,...(previous.invite_code?{invite_code:previous.invite_code}:{}),...(previous.place?{place:previous.place}:{})})); await refresh(); })().catch(e => setMessage(safeMessage(e))).finally(() => setReady(true));
     const foreground=async()=>{await reconcileTracking().catch(()=>{});await syncPhotos().catch(()=>{});await refresh();};
     const app = AppState.addEventListener("change", state => { if (state === "active") void foreground().catch(() => {}); });
     onSessionsCreated(async ids=>{await refresh();if(AppState.currentState==="active"&&ids[0])setPane("session:"+ids[0]);});
@@ -196,11 +197,18 @@ export default function ClassStreakApp() {
     });
   };
   const extra=(target:string)=>target.startsWith("friend:")&&snapshot?<FriendProfile key={snapshot.profile.id+":"+target} peerId={target.slice(7)} snapshot={snapshot} action={action}/>:target==="active-workout"&&snapshot?<ActiveWorkout candidate={activeWorkout} snapshot={snapshot} action={action} busy={busy}/>:target==="health"&&snapshot?<Health snapshot={snapshot} action={action}/>:target==="studios"&&snapshot?<Studios snapshot={snapshot} action={action}/>:target==="studio-qr"&&studioQR?<StudioQR {...studioQR} action={action}/>:(target==="recap"||target.startsWith("milestone:"))&&snapshot?<Celebration celebrate={celebrationKey===snapshot.profile.id+":"+target} snapshot={snapshot} action={action} now={new Date(observedNow+clockOffset)} milestone={target.startsWith("milestone:")?Number(target.slice(10)):undefined}/>:target==="friends"&&snapshot?<Friends snapshot={snapshot} action={action} now={new Date(observedNow+clockOffset)}/>:target==="add-friends"&&snapshot?<AddFriends snapshot={snapshot} action={action} matches={contactMatches}/>:target==="scan"?<Scanner action={action}/>:target==="debug"&&snapshot?<Debug snapshot={snapshot} action={action} refresh={refresh}/>:target==="add-place"?<PlacesPicker choices={[...new Set([...(snapshot?.goals??[]).map(g=>g.activity_key),...(snapshot?.pending_goals??[]).map(g=>g.activity_key)])]} value={snapshot?.places.find(p=>p.id===editingPlace)??null} onSelect={place=>{action("settings",{kind:"place",payload:{...place,id:place.id||undefined}});setEditingPlace(null);setPane("places");}} onError={e=>setMessage(safeMessage(e))}/>:target==="privacy"?<><Txt serif size={32}>Terms and privacy</Txt><Txt>ClassStreak records visits to the places you save. Location observations and exact visit times are private to your account. Accepted friends see session summaries, photos and comments from the day you became friends.</Txt><Txt>Place names are shared only when both sharing switches are on. Studio boards show first name and last initial when you opt in. You can pause tracking, remove a session, unfriend someone or delete your account.</Txt><Txt>Automatic detection can miss a visit or estimate a departure. A recorded visit does not prove exercise or attendance at a class. Demo and simulated records are labeled.</Txt><Txt>Your account data is stored by Supabase. Google receives studio searches. Photos you export through another app are subject to that app’s audience and policies.</Txt></>:null;
+  const pasteCodes=async()=>{
+    const codes=await pastedCodes();
+    if(!codes.invite_code&&!codes.studio_code){setMessage("No ClassStreak friend code or studio link on the clipboard.");return;}
+    if(codes.invite_code)change({invite_code:codes.invite_code});
+    if(codes.studio_code&&configured){const {data}=await backend().rpc("cs_studio_preview",{code:codes.studio_code});if(!data)throw new Error("That studio link is unavailable.");change({place:{...data,id:""}});await write("cs:pending_studio",true);setMessage("Studio added from the link. It will be saved with your account.");}
+  };
   const accountForm = <View style={{ gap: 12 }}>
     {signedIn ? <Button title="Save my setup" disabled={busy} onPress={() => run(complete)} /> : <>
       <Input label="Email" value={email} onChange={setEmail} keyboard="email-address" />
       <Input label="Password" value={password} onChange={setPassword} secure />
       <Input label="I have a friend code (optional)" value={draft.invite_code} onChange={invite_code => change({ invite_code })} />
+      <Button title="Paste friend or studio link" secondary small onPress={() => run(pasteCodes)} />
       <Button title={busy ? "Creating account…" : "Create account"} disabled={busy || !email.includes("@") || password.length < 8} onPress={() => run(async () => {
         if (await signUp(email, password)) { await complete(); setPassword(""); }
         else setMessage("Check your email to confirm your account, then sign in here. Your setup is saved.");

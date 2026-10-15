@@ -7,6 +7,7 @@ import {progress,dayKey} from "./engine";
 import {Avatar,Button,Card,Divider,Empty,Icon,Input,Row,Txt,useTheme} from "./ui";
 import type {Action} from "./SessionScreens";
 import {PrivatePhoto} from "./PrivatePhoto";
+import {pastedCodes} from "./clipboardCodes";
 export const inviteLink=(code:string)=>(process.env.EXPO_PUBLIC_INVITE_BASE_URL??"https://classstreak.app")+"/j/"+code;
 export function Friends({snapshot:s,action,now}:{snapshot:Snapshot;action:Action;now:Date}){
  const t=useTheme();const [tab,setTab]=useState("league");const [focus,setFocus]=useState<string|null>(null);const reduced=useReducedMotion();const own=progress(s.sessions,s.weeks,s.goals,s.profile.tz,now);
@@ -48,7 +49,7 @@ export function AddFriends({snapshot:s,action,matches=[]}:{snapshot:Snapshot;act
  const [code,setCode]=useState("");const [qr,setQr]=useState(false);
  return <View style={{gap:14}}><Txt serif size={32}>Bring your people.</Txt><Txt muted>Share a link, scan a code or find someone you know.</Txt><Button title="Share my invite" icon="share" onPress={()=>action("share_invite")}/><Row><Button secondary small title="My QR" icon="qr" onPress={()=>setQr(!qr)}/><Button secondary small title="Scan" icon="camera" onPress={()=>action("navigate",{pane:"scan"})}/><Button secondary small title="Contacts" icon="friends" onPress={()=>action("contacts")}/></Row>
  {qr&&<Card style={{alignItems:"center",gap:12}}><QRCode value={inviteLink(s.profile.invite_code)} size={190}/><Txt bold>{s.profile.invite_code}</Txt><Button secondary small title="Copy my code" onPress={()=>action("copy_invite")}/></Card>}
- <Input label="Friend code" value={code} onChange={v=>setCode(v.toUpperCase().replace(/[^A-Z0-9]/g,"").slice(0,12))}/><Button secondary title="Use friend code" disabled={code.length!==12} onPress={()=>action("social",{action:"invite",payload:{code}})}/>
+ <Input label="Friend code" value={code} onChange={v=>setCode(v.toUpperCase().replace(/[^A-Z0-9]/g,"").slice(0,12))}/><Button secondary small title="Paste friend code" onPress={()=>void pastedCodes().then(c=>c.invite_code?setCode(c.invite_code):action("message",{text:"No ClassStreak friend code on the clipboard."})).catch(error=>action("error",{error}))}/><Button secondary title="Use friend code" disabled={code.length!==12} onPress={()=>action("social",{action:"invite",payload:{code}})}/>
  {matches.map(f=><Card key={f.id}><Row><Avatar name={f.first_name}/><Txt style={{flex:1}}>{f.first_name}</Txt><Button small title="Request" onPress={()=>action("social",{action:"request",payload:{id:f.id}})}/></Row></Card>)}
  {s.friends.map(f=><Card key={f.id} style={{gap:10}}><Row><Avatar name={f.first_name}/><View style={{flex:1}}><Txt bold>{f.first_name}</Txt><Txt muted size={11}>{f.is_demo?"Demo friend":f.status==="accepted"?"Friends":f.requested_by===s.profile.id?"Request sent":"Wants to be friends"}</Txt></View></Row><Row>{f.status==="pending"&&f.requested_by!==s.profile.id&&<Button small title="Accept" onPress={()=>action("social",{action:"accept",payload:{id:f.id}})}/>}<Button small secondary title={f.status==="accepted"?"Unfriend":"Remove request"} onPress={()=>action("social",{action:"remove",payload:{id:f.id}})}/></Row></Card>)}
  </View>;

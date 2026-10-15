@@ -60,3 +60,7 @@
 - Permanently invalid events stay byte-for-byte in the encrypted outbox, with owner-scoped hold markers. Valid later events can sync. Debug shows pending versus preserved counts and offers history/manual-review navigation. No token is reassigned and no unverified old event becomes an automatic verified session.
 - A user's missed workout is not claimed recovered until it appears in their history. Re-registering after upgrading first drains eligible records and preserves expired ones before establishing a new capture.
 - Applied only migration 012 after baseline inspection. Rollback: restore close_visit from migration 002; the new read-only status RPC can remain harmlessly available. Never replay the whole migration 002.
+
+## TestFlight build 8 fixes (15 October 2026)
+- The app no longer reads the clipboard on first launch, which made iOS show a paste prompt. Friend codes and studio links are read only when the person taps a Paste button (account form and Add friends). Typing or long-press paste in the field still works.
+- RPC calls retry for up to 20 seconds when PostgREST answers PGRST303 "JWT issued at future". A token refreshed just before saving (for example, ending a visit more than an hour after it started) can reach the database before its clock passes the token's issue time. Ended visits were already saved locally first, so they now sync instead of showing the error.
