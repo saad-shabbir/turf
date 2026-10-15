@@ -45,6 +45,12 @@ async function saveLinkedPlace(place:Place){
  const active=!(await trackingState()).paused;if(active)await syncVisits();
  const result=await saveSettings('place',{...place,id:previous?.id});if(active)await startTracking();return result;
 }
+// Onboarding saves draft.places once it exists, so every added place goes into that list.
+// A pasted studio also stays in draft.place, which applyPendingLinks saves when the person signs in instead.
+function withDraftPlace(draft:Draft,place:Place){
+ const places=[...(draft.places??(draft.place?[draft.place]:[])).filter(p=>!(p.google_place_id&&p.google_place_id===place.google_place_id)&&!(p.name===place.name&&p.lat===place.lat&&p.lng===place.lng)),place];
+ return {place:places[0],places};
+}
 async function applyPendingLinks(){
  const d=await read('cs:draft',newDraft());await getSnapshot();
  if(d.invite_code){await call('cs_social',{action:'invite',payload:{code:d.invite_code}});await write('cs:draft',{...d,invite_code:''});}
@@ -201,7 +207,7 @@ export default function ClassStreakApp() {
     const codes=await pastedCodes();
     if(!codes.invite_code&&!codes.studio_code){setMessage("No ClassStreak friend code or studio link on the clipboard.");return;}
     if(codes.invite_code)change({invite_code:codes.invite_code});
-    if(codes.studio_code&&configured){const {data}=await backend().rpc("cs_studio_preview",{code:codes.studio_code});if(!data)throw new Error("That studio link is unavailable.");change({place:{...data,id:""}});await write("cs:pending_studio",true);setMessage("Studio added from the link. It will be saved with your account.");}
+    if(codes.studio_code&&configured){const {data}=await backend().rpc("cs_studio_preview",{code:codes.studio_code});if(!data)throw new Error("That studio link is unavailable.");const studio={...data,id:""} as Place;change({...withDraftPlace(draft,studio),place:studio});await write("cs:pending_studio",true);setMessage("Studio added from the link. It will be saved with your account.");}
   };
   const accountForm = <View style={{ gap: 12 }}>
     {signedIn ? <Button title="Save my setup" disabled={busy} onPress={() => run(complete)} /> : <>
@@ -246,6 +252,6 @@ export default function ClassStreakApp() {
       const fg = await Location.requestForegroundPermissionsAsync();
       const bg=fg.status === "granted"?await Location.requestBackgroundPermissionsAsync():null;track("permission_result",{permission:bg?.granted?"always":fg.granted?"when_in_use":"denied"});
       change({ location_consent: fg.status === "granted", step: 6 });
-    })} search={<PlacesPicker choices={draft.selected} value={null} onSelect={place => { const places=[...(draft.places??(draft.place?[draft.place]:[])).filter(p=>!(p.google_place_id&&p.google_place_id===place.google_place_id)&&!(p.name===place.name&&p.lat===place.lat&&p.lng===place.lng)),place]; change({ place:places[0],places }); }} onError={e => setMessage(safeMessage(e))} />} account={accountForm} />}
+    })} search={<PlacesPicker choices={draft.selected} value={null} onSelect={place => change(withDraftPlace(draft,place))} onError={e => setMessage(safeMessage(e))} />} account={accountForm} />}
   </SafeAreaView></Theme>;
 }
