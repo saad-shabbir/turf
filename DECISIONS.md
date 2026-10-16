@@ -71,4 +71,5 @@
 - Taps on the widget (`turf://home`) and the Live Activity (`turf://active-workout`) opened expo-router's "Unmatched Route". `app/+native-intent.ts` sends every link except `/account` to the root; App.tsx still reads the original URL through Linking.
 - Debug shows the widget status and ActivityKit's error text, because Release builds draw a blank widget instead of an error.
 - The App Group, extension config and layouts are correct. Each layout is turned into a string and runs inside the extension, and both use only names the extension provides.
-- `.gitattributes` now forces LF on every checkout, so a Windows build and a Linux checkout compute the same runtime version.
+- `.gitattributes` now forces LF on every checkout, so a Windows build and a Linux checkout compute the same runtime version. Build 8's three "dirty" files had no content changes, only CRLF line endings.
+- Opening the app offline with an expired access token no longer looks like a sign-out. auth-js keeps the saved session after a network failure but returns no session, and `refresh()` treated that as signed out: it showed sign-in, blanked the widget and ended the Lock Screen timer. Now the app stays signed in on the cached snapshot and leaves both alone, and `authenticatedOwner()` reports NETWORK instead of AUTH_REQUIRED. A refresh token the server rejects still signs out as before.
