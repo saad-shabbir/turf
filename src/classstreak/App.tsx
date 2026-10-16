@@ -9,7 +9,8 @@ import { Fraunces_600SemiBold } from "@expo-google-fonts/fraunces";
 import { Manrope_400Regular, Manrope_600SemiBold, Manrope_700Bold, Manrope_800ExtraBold } from "@expo-google-fonts/manrope";
 import * as Location from "expo-location";
 import * as Linking from "expo-linking";
-import { backend, configured, resetClientAfterStorageRecovery } from "../auth/client";
+import { backend, configured, resetClientAfterStorageRecovery, savedSessionOwner } from "../auth/client";
+import { isAuthRetryableFetchError } from "@supabase/supabase-js";
 import { purge, read, write, recoverUnreadableStorage } from "../db/local";
 import { checkNativeEncryption } from "../db/storage-check";
 import { call, finishOnboarding, getSnapshot, resetEmail, saveSettings, signIn, signUp } from "./api";
@@ -83,7 +84,18 @@ export default function ClassStreakApp() {
     const epoch=authEpoch.current;
     setObservedNow(Date.now());
     if (!configured) return;
-    const { data } = await backend().auth.getSession();
+    const { data, error } = await backend().auth.getSession();
+    // Offline with an expired access token, the saved session is kept but cannot be refreshed.
+    // Stay signed in on the cached snapshot, and leave the widget and Lock Screen timer alone.
+    const offlineOwner=!data.session&&isAuthRetryableFetchError(error)?await savedSessionOwner():null;
+    if(offlineOwner){
+      if(epoch!==authEpoch.current)return;
+      const cached=await read<{ auth: string; value: Snapshot } | null>("cs:snapshot", null);
+      setSignedIn(true);setAuthId(offlineOwner);
+      if(cached?.auth===offlineOwner){setSnapshot(demoPreview.current?cached.value:liveSnapshot(cached.value));setTracking("You are offline. Saved visits will sync when you reconnect.");}
+      else setMessage(safeMessage(new Error("NETWORK")));
+      return;
+    }
     setSignedIn(!!data.session);
     setAuthId(data.session?.user.id??null);
     if (!data.session) { demoPreview.current=false; setSnapshot(null);try{updateWidget(null);}catch{}await clearWorkoutLiveActivity().catch(()=>{});return; }
