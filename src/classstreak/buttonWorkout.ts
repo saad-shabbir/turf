@@ -1,6 +1,6 @@
 import * as Location from 'expo-location';
 import * as Crypto from 'expo-crypto';
-import {authenticatedOwner} from '../auth/client';
+import {authenticatedOwner,localOwner} from '../auth/client';
 import {read,write,transaction} from '../db/local';
 import {activity,type Snapshot} from './model';
 import {distanceMeters,type Candidate} from './engine';
@@ -19,7 +19,7 @@ export function startingPlace(places:Snapshot['places'],fix:Location.LocationObj
 let starting:Promise<Candidate>|undefined;
 export function startButtonWorkout(s:Snapshot,key:string){starting??=start(s,key).finally(()=>{starting=undefined;});return starting;}
 async function start(s:Snapshot,key:string){
- const owner=await authenticatedOwner(),epoch=await read('auth_epoch',0);const cache=await read<{auth:string;value:Snapshot}|null>('cs:snapshot',null);if(cache?.auth!==owner||cache.value.profile.id!==s.profile.id)throw new Error('AUTH_REQUIRED');
+ const owner=await localOwner(),epoch=await read('auth_epoch',0);const cache=await read<{auth:string;value:Snapshot}|null>('cs:snapshot',null);if(cache?.auth!==owner||cache.value.profile.id!==s.profile.id)throw new Error('AUTH_REQUIRED');
  const current=await trackingState();const existing=await buttonWorkout();
  if(existing?.owner===owner)return existing.candidate;
  if(current.owner===owner&&!current.paused&&current.candidate){await controlWorkout('SELECT',current.candidate.visit_id!,key);return (await trackingState()).candidate!;}
@@ -44,7 +44,7 @@ async function start(s:Snapshot,key:string){
  await syncWorkoutLiveActivity().catch(()=>{});return result;
 }
 export async function controlButtonWorkout(kind:'SELECT'|'RESTART'|'STOP',id:string,key?:string){
- const owner=await authenticatedOwner();let handled=false;
+ const owner=await localOwner();let handled=false;
  await transaction(async db=>{
   const w=await read<ButtonWorkout|null>('cs:button_workout',null,db);if(!w||w.owner!==owner||w.candidate.visit_id!==id)return;
   if(await read('auth_blocked',false,db))throw new Error('AUTH_REQUIRED');

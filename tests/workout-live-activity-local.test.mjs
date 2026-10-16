@@ -88,6 +88,34 @@ test('Clear stays suspended until explicit authenticated resume; background call
  await sync({resume:true});assert.equal(instances.size,1);assert.equal(await local.read('cs:live_activity_status',''),'active');
 });
 
+test('After a signed-out launch, a workout started after sign-in shows the card without reopening the app',async()=>{
+ await clear();await local.purge();await local.write('auth_blocked',false);
+ // Sign-in refresh: snapshot cached for the new session, no tracking or button workout yet.
+ await local.write('cs:snapshot',{auth:'auth-a',value:makeSnapshot()});await sync({resume:true});
+ assert.equal(instances.size,0);assert.equal(await local.read('cs:live_activity_status',''),'none');
+ await local.write('cs:tracking',{owner:'auth-a',paused:false,candidate:initialCandidate()});await sync();
+ assert.equal(instances.size,1);assert.equal(await local.read('cs:live_activity_status',''),'active');
+});
+
+test('ActivityKit errors are kept in the Debug status',async()=>{
+ await prepare();const start=driver.start;driver.start=()=>{throw new Error('Live Activities are not supported on this device');};
+ try{await sync();assert.equal(instances.size,0);assert.equal(await local.read('cs:live_activity_status',''),'unavailable: Live Activities are not supported on this device');}
+ finally{driver.start=start;}
+});
+
+test('Sign-out ends a button workout card before tracking stops, and the next account can start one',async()=>{
+ await clear();await local.purge();await local.write('auth_blocked',false);
+ await local.write('cs:snapshot',{auth:'auth-a',value:makeSnapshot()});await sync({resume:true});
+ await local.write('cs:button_workout',{owner:'auth-a',candidate:{...initialCandidate(),visit_id:'button-a',source:'manual',place_id:''}});await sync();
+ assert.equal(instances.size,1);
+ // signOut(): clear first, then stopTracking's paused write and sync, then purge.
+ await clear();await local.write('cs:tracking',{owner:'auth-a',paused:true,candidate:null});await sync();await local.purge();
+ assert.equal(instances.size,0);await sync();assert.equal(instances.size,0);
+ await local.write('auth_blocked',false);await local.write('cs:snapshot',{auth:'auth-b',value:makeSnapshot()});await sync({resume:true});
+ await local.write('cs:button_workout',{owner:'auth-b',candidate:{...initialCandidate(),visit_id:'button-b',source:'manual',place_id:''}});await sync();
+ assert.equal(instances.size,1);
+});
+
 test('A manually dismissed card stays dismissed for that visit, but a new arrival can start one',async()=>{
  const {state}=await prepare();await sync();const binding=await local.read('cs:live_activity',null);instances.delete(binding.id);
  await sync();await sync({resume:true});state.candidate.workout_label='Boxing';await local.write('cs:tracking',state);await sync();

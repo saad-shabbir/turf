@@ -20,6 +20,7 @@ export const native = {
   networkFails: false,
   uploads: [],
   session: null,
+  sessionError: null,
   tasks: new Map(),
   registered: false,
   rpcHandler: null,
@@ -63,11 +64,12 @@ globalThis.__turfMocks = {
     },
   },
   "@supabase/supabase-js": {
+    isAuthRetryableFetchError: (error) => error?.name === "AuthRetryableFetchError",
     createClient: () => ({
       auth: {
         getSession: async () => ({
           data: { session: native.session },
-          error: null,
+          error: native.sessionError,
         }),
         refreshSession: async () => {
           native.refreshes++;

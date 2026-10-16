@@ -3,17 +3,18 @@ import * as Crypto from "expo-crypto";
 import * as MediaLibrary from "expo-media-library";
 import NativeShare from "react-native-share";
 import * as Clipboard from "expo-clipboard";
-import {authenticatedOwner,backend} from "../auth/client";
+import {authenticatedOwner,backend,localOwner} from "../auth/client";
 import {read,write,transaction} from "../db/local";
 import {call} from "./api";
 import {inviteLink} from "./Friends";
 import {track} from './analytics';
 type Upload={id:string;owner:string;session_id:string;path:string;base64:string;note:string};
 export async function queuePhoto(uri:string,sessionId:string,note:string){
- const owner=await authenticatedOwner();const id=Crypto.randomUUID();const file=new File(uri);if(file.size>10485760)throw new Error("Choose a smaller photo.");
+ const owner=await localOwner();const id=Crypto.randomUUID();const file=new File(uri);if(file.size>10485760)throw new Error("Choose a smaller photo.");
  const upload:Upload={id,owner,session_id:sessionId,path:`${owner}/${sessionId}/${id}.jpg`,base64:await file.base64(),note};
  await transaction(async db=>{const rows=await read<Upload[]>("cs:uploads",[],db);if(rows.length>=10)throw new Error("Ten photos are waiting to sync. Connect to the internet before saving another.");await write("cs:uploads",[...rows,upload],db);});
- return syncPhotos();
+ // Offline the photo stays queued on this phone and uploads later.
+ return syncPhotos().catch(error=>{if(error instanceof Error&&error.message==="NETWORK")return false;throw error;});
 }
 let syncing:Promise<boolean>|undefined;
 export function syncPhotos(){syncing??=work().finally(()=>{syncing=undefined;});return syncing;}

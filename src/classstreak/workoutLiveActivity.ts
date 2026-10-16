@@ -39,12 +39,14 @@ async function reconcile(ticket:number,resume:boolean){
  const blocked=await read('auth_blocked',false);
  // Only the authenticated foreground refresh can explicitly resume after a
  // clear. A later background callback must not resurrect a signed-out card.
- if(resume&&ticket===generation&&!blocked&&state.owner&&cache?.auth===state.owner&&await read('auth_epoch',0)===epoch)suspended=false;
+ // Right after sign-in there is no workout yet, so resume without one; a workout
+ // started later in the same session must not wait for the app to reopen.
+ if(resume&&ticket===generation&&!blocked&&cache?.auth&&(!state.owner||cache.auth===state.owner)&&await read('auth_epoch',0)===epoch)suspended=false;
  if(suspended)return;
  const c=state.candidate;
  const allowed=!blocked&&!state.paused&&state.owner&&cache?.auth===state.owner&&c?.visit_id&&(c.source==='geofence'||c.source==='manual')&&Number.isFinite(Date.parse(c.entered_at))&&Date.parse(c.entered_at)<=Date.now()&&Date.now()-Date.parse(c.entered_at)<14400000;
  let instances;
- try{instances=workoutActivityDriver.list();}catch{await write('cs:live_activity_status','unavailable');return;}
+ try{instances=workoutActivityDriver.list();}catch(e){await write('cs:live_activity_status',unavailable(e));return;}
  if(!allowed){for(const item of instances)await item.end('immediate');await write('cs:live_activity',null);await write('cs:live_activity_status','none');return;}
  const s=liveSnapshot(cache!.value),stats=progress(s.sessions.filter(session=>session.user_id===s.profile.id),s.weeks,s.goals,s.profile.tz,new Date());
  const props:WorkoutActivityProps={label:c!.workout_label.slice(0,60),startedAt:Date.parse(c!.entered_at),count:stats.count,goal:stats.goal,accent:s.profile.theme==='sage'?'#AAC996':s.profile.theme==='blush'?'#E8A2B5':'#E9AA7D'};
@@ -69,5 +71,7 @@ async function reconcile(ticket:number,resume:boolean){
   if(ticket!==generation||await read('auth_epoch',0)!==epoch||await read('auth_blocked',false)||latest.owner!==state.owner||latest.paused||latest.candidate?.visit_id!==c!.visit_id){await current.end('immediate');return;}
   await write('cs:live_activity',{id:current.getId(),owner:state.owner,visit:c!.visit_id,fingerprint});
   await write('cs:live_activity_status','active');
- }catch{await write('cs:live_activity_status','unavailable');}
+ }catch(e){await write('cs:live_activity_status',unavailable(e));}
 }
+// Keep ActivityKit's reason (for example, Live Activities turned off for the app) for Debug.
+const unavailable=(e:unknown)=>'unavailable: '+(e instanceof Error?e.message:String(e)).slice(0,160);

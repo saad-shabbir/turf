@@ -9,7 +9,8 @@ import { Fraunces_600SemiBold } from "@expo-google-fonts/fraunces";
 import { Manrope_400Regular, Manrope_600SemiBold, Manrope_700Bold, Manrope_800ExtraBold } from "@expo-google-fonts/manrope";
 import * as Location from "expo-location";
 import * as Linking from "expo-linking";
-import { backend, configured, resetClientAfterStorageRecovery } from "../auth/client";
+import { backend, configured, resetClientAfterStorageRecovery, savedSessionOwner } from "../auth/client";
+import { isAuthRetryableFetchError } from "@supabase/supabase-js";
 import { purge, read, write, recoverUnreadableStorage } from "../db/local";
 import { checkNativeEncryption } from "../db/storage-check";
 import { call, finishOnboarding, getSnapshot, resetEmail, saveSettings, signIn, signUp } from "./api";
@@ -83,12 +84,23 @@ export default function ClassStreakApp() {
     const epoch=authEpoch.current;
     setObservedNow(Date.now());
     if (!configured) return;
-    const { data } = await backend().auth.getSession();
+    const { data, error } = await backend().auth.getSession();
+    // Offline with an expired access token, the saved session is kept but cannot be refreshed.
+    // Stay signed in on the cached snapshot, and leave the widget and Lock Screen timer alone.
+    const offlineOwner=!data.session&&isAuthRetryableFetchError(error)?await savedSessionOwner():null;
+    if(offlineOwner){
+      if(epoch!==authEpoch.current)return;
+      const cached=await read<{ auth: string; value: Snapshot } | null>("cs:snapshot", null);
+      setSignedIn(true);setAuthId(offlineOwner);
+      if(cached?.auth===offlineOwner){setSnapshot(demoPreview.current?cached.value:liveSnapshot(cached.value));setTracking("You are offline. Saved visits will sync when you reconnect.");}
+      else setMessage(safeMessage(new Error("NETWORK")));
+      return;
+    }
     setSignedIn(!!data.session);
     setAuthId(data.session?.user.id??null);
     if (!data.session) { demoPreview.current=false; setSnapshot(null);try{updateWidget(null);}catch{}await clearWorkoutLiveActivity().catch(()=>{});return; }
     try { await syncButtonWorkouts().catch(()=>{}); const raw = await getSnapshot();const value=demoPreview.current?raw:liveSnapshot(raw);if(epoch!==authEpoch.current)return;setSnapshot(value); await write("cs:snapshot", { auth: data.session.user.id, value:{...value,friends:[],feed:[],inbox:[],achievements:[]} });setClockOffset(await read("cs:clock_offset",0));setTracking(await trackingNotice(value));
-      try{updateWidget(value);}catch{}void syncHealth(value).catch(()=>{});
+      try{updateWidget(value);void write('cs:widget_status','updated '+new Date().toISOString());}catch(e){void write('cs:widget_status','error: '+(e instanceof Error?e.message:String(e)).slice(0,160));}void syncHealth(value).catch(()=>{});
       void syncWorkoutLiveActivity({resume:true}).catch(()=>{});
       void scheduleReminders(value).catch(()=>{});
       const milestone=await announceMilestones(value).catch(()=>null);if(milestone){setPane('milestone:'+milestone);track('milestone',{count:milestone});}
@@ -103,7 +115,11 @@ export default function ClassStreakApp() {
   }, [setSnapshot]);
   const run = (action: () => Promise<void>) => { setBusy(true); setMessage(""); void action().catch(e => setMessage(safeMessage(e))).finally(() => setBusy(false)); };
   useEffect(() => {
-    void (async () => { const saved=await read("cs:draft", newDraft());setDraft(previous=>({...saved,...(previous.invite_code?{invite_code:previous.invite_code}:{}),...(previous.place?{place:previous.place}:{})})); await refresh(); })().catch(e => setMessage(safeMessage(e))).finally(() => setReady(true));
+    void (async () => { const saved=await read("cs:draft", newDraft());setDraft(previous=>({...saved,...(previous.invite_code?{invite_code:previous.invite_code}:{}),...(previous.place?{place:previous.place}:{})}));
+      // getSession() can spend 25-40 s retrying a refresh offline, so show the saved account's cache first.
+      const owner=configured?await savedSessionOwner().catch(()=>null):null;const cached=owner?await read<{ auth: string; value: Snapshot } | null>("cs:snapshot", null):null;
+      if(owner&&cached?.auth===owner){setSignedIn(true);setAuthId(owner);setSnapshot(cached.value);setReady(true);}
+      await refresh(); })().catch(e => setMessage(safeMessage(e))).finally(() => setReady(true));
     const foreground=async()=>{await reconcileTracking().catch(()=>{});await syncPhotos().catch(()=>{});await refresh();};
     const app = AppState.addEventListener("change", state => { if (state === "active") void foreground().catch(() => {}); });
     onSessionsCreated(async ids=>{await refresh();if(AppState.currentState==="active"&&ids[0])setPane("session:"+ids[0]);});
@@ -127,7 +143,7 @@ export default function ClassStreakApp() {
     void Linking.getInitialURL().then(url => url ? handle(url) : undefined).catch(() => {});
     const links = Linking.addEventListener("url", e => { void handle(e.url).catch(e => setMessage(safeMessage(e))); });
     return () => { app.remove(); links.remove();notification.remove();onSessionsCreated(async()=>{}); };
-  }, [refresh,change]);
+  }, [refresh,change,setSnapshot]);
   useEffect(()=>{
     if(!signedIn)return;
     let cancelled=false;
@@ -148,7 +164,7 @@ export default function ClassStreakApp() {
     if(await read("cs:pending_studio",false)){setPane("studios");await write("cs:pending_studio",false);}
     if(draft.location_consent&&value.places.some(p=>p.enabled))await startTracking().catch(()=>setMessage("Your setup is saved. Automatic tracking can be enabled in Account when location is allowed."));
   };
-  const signOut=async()=>{demoPreview.current=false;authEpoch.current++;try{updateWidget(null);}catch{}await stopTracking();await clearNotifications();await backend().auth.signOut({scope:"local"});await purge();setSnapshot(null);setSignedIn(false);setActiveWorkout(null);setAuthId(null);setDraft(newDraft());setPane("home");setMode("signin");};
+  const signOut=async()=>{demoPreview.current=false;authEpoch.current++;try{updateWidget(null);}catch{}await clearWorkoutLiveActivity().catch(()=>{});await stopTracking();await clearNotifications();await backend().auth.signOut({scope:"local"});await purge();setSnapshot(null);setSignedIn(false);setActiveWorkout(null);setAuthId(null);setDraft(newDraft());setPane("home");setMode("signin");};
   const action:Action=(name,payload={})=>{
     if(name==='friend_snapshot'){const updated=payload.snapshot as Snapshot|undefined;if(updated?.profile?.id)setSnapshotState(current=>current?.profile.id===updated.profile.id?(demoPreview.current?updated:liveSnapshot(updated)):current);return;}
     if(name==="navigate"){setPane(String(payload.pane));if(payload.pane==='plus')track('paywall_viewed',{placement:pane});return;}

@@ -27,3 +27,15 @@ test('an existing automatic timer is reused and another account cannot start fro
  await setup();const c={visit_id:'arrival',place_id:place.id,activity_key:'gym',workout_label:'Weights',source:'geofence',entered_at:new Date(Date.now()-1000).toISOString(),lat:0,lng:0,radius_m:100};await local.write('cs:tracking',{...(await tracking.trackingState()),candidate:c});const reused=await buttons.startButtonWorkout(snapshot,'boxing');assert.equal(reused.visit_id,'arrival');assert.equal(await buttons.buttonWorkout(),null);
  await setup();await local.write('cs:snapshot',{auth:'another-owner',value:snapshot});await assert.rejects(()=>buttons.startButtonWorkout(snapshot,'gym'),/AUTH_REQUIRED/);
 });
+test('Offline with an expired token, Stop still saves the workout on this phone',async()=>{
+ await setup();granted=false;const c=await buttons.startButtonWorkout(snapshot,'gym');
+ const w=await buttons.buttonWorkout();await local.write('cs:button_workout',{...w,candidate:{...w.candidate,entered_at:new Date(Date.now()-120000).toISOString()}});
+ await local.write('auth:sb-synthetic-auth-token',JSON.stringify({access_token:'a',refresh_token:'r',expires_at:1,user:{id:'auth-a'}}));
+ native.session=null;native.sessionError={name:'AuthRetryableFetchError',message:'Failed to fetch'};
+ try{
+  assert.equal(await buttons.controlButtonWorkout('STOP',c.visit_id),true);assert.equal(await buttons.buttonWorkout(),null);assert.equal((await local.read('cs:button_pending',[])).length,1);
+  // A saved session for another account cannot act on this phone's data.
+  await local.write('auth:sb-synthetic-auth-token',JSON.stringify({access_token:'a',refresh_token:'r',expires_at:1,user:{id:'auth-b'}}));
+  await assert.rejects(()=>buttons.controlButtonWorkout('STOP',c.visit_id),/AUTH_REQUIRED/);
+ }finally{native.sessionError=null;}
+});

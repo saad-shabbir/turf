@@ -7,7 +7,7 @@
     "start": "expo start",
     "typecheck": "tsc --noEmit",
     "lint": "eslint .",
-    "test": "node --test --test-isolation=none tests/classstreak-domain.test.mjs tests/classstreak-reminders.test.mjs",
+    "test": "node --test --test-isolation=none tests/classstreak-domain.test.mjs tests/classstreak-reminders.test.mjs tests/live-activity-resolution.test.mjs && node --test --test-isolation=none tests/workout-live-activity-local.test.mjs && node --test --test-isolation=none tests/offline-session-local.test.mjs",
     "check:config": "node scripts/check-config.mjs",
     "test:db": "node --test --test-isolation=none tests/classstreak-*.test.mjs",
     "db:types": "node scripts/generate-db-types.mjs"
