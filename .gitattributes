@@ -1,4 +1,6 @@
-* text=auto
+# LF everywhere, including Windows checkouts. The runtime fingerprint hashes raw bytes,
+# so CRLF files on the build laptop would give a runtime version no other checkout can match.
+* text=auto eol=lf
 *.sh text eol=lf
 *.yml text eol=lf
 *.sql text eol=lf
