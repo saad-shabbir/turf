@@ -88,7 +88,7 @@ export default function ClassStreakApp() {
     setAuthId(data.session?.user.id??null);
     if (!data.session) { demoPreview.current=false; setSnapshot(null);try{updateWidget(null);}catch{}await clearWorkoutLiveActivity().catch(()=>{});return; }
     try { await syncButtonWorkouts().catch(()=>{}); const raw = await getSnapshot();const value=demoPreview.current?raw:liveSnapshot(raw);if(epoch!==authEpoch.current)return;setSnapshot(value); await write("cs:snapshot", { auth: data.session.user.id, value:{...value,friends:[],feed:[],inbox:[],achievements:[]} });setClockOffset(await read("cs:clock_offset",0));setTracking(await trackingNotice(value));
-      try{updateWidget(value);}catch{}void syncHealth(value).catch(()=>{});
+      try{updateWidget(value);void write('cs:widget_status','updated '+new Date().toISOString());}catch(e){void write('cs:widget_status','error: '+(e instanceof Error?e.message:String(e)).slice(0,160));}void syncHealth(value).catch(()=>{});
       void syncWorkoutLiveActivity({resume:true}).catch(()=>{});
       void scheduleReminders(value).catch(()=>{});
       const milestone=await announceMilestones(value).catch(()=>null);if(milestone){setPane('milestone:'+milestone);track('milestone',{count:milestone});}
