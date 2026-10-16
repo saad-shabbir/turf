@@ -1,5 +1,5 @@
 import { createClient, isAuthRetryableFetchError, type SupabaseClient } from "@supabase/supabase-js";
-import { createAuthStorage, bindOwner, read } from "../db/local";
+import { createAuthStorage, bindOwner, read, state } from "../db/local";
 import type {
   Capture,
   IngestResult,
@@ -69,6 +69,19 @@ export async function savedSessionOwner() {
     return saved?.user?.id ?? null;
   } catch {
     return null;
+  }
+}
+// The owner for actions that only change data on this phone (start or stop a workout, queue a
+// photo). Offline with an expired token, use the saved session's owner if this phone's data is
+// bound to that account. Anything that talks to the server still needs authenticatedOwner().
+export async function localOwner() {
+  try {
+    return await authenticatedOwner();
+  } catch (error) {
+    if (!(error instanceof Error) || error.message !== "NETWORK") throw error;
+    const owner = await savedSessionOwner();
+    if (!owner || (await state()).owner !== owner) throw new Error("AUTH_REQUIRED");
+    return owner;
   }
 }
 // A token refreshed moments ago can reach the database before its clock passes the
