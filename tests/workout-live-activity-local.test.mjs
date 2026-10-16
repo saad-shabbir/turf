@@ -103,6 +103,19 @@ test('ActivityKit errors are kept in the Debug status',async()=>{
  finally{driver.start=start;}
 });
 
+test('Sign-out ends a button workout card before tracking stops, and the next account can start one',async()=>{
+ await clear();await local.purge();await local.write('auth_blocked',false);
+ await local.write('cs:snapshot',{auth:'auth-a',value:makeSnapshot()});await sync({resume:true});
+ await local.write('cs:button_workout',{owner:'auth-a',candidate:{...initialCandidate(),visit_id:'button-a',source:'manual',place_id:''}});await sync();
+ assert.equal(instances.size,1);
+ // signOut(): clear first, then stopTracking's paused write and sync, then purge.
+ await clear();await local.write('cs:tracking',{owner:'auth-a',paused:true,candidate:null});await sync();await local.purge();
+ assert.equal(instances.size,0);await sync();assert.equal(instances.size,0);
+ await local.write('auth_blocked',false);await local.write('cs:snapshot',{auth:'auth-b',value:makeSnapshot()});await sync({resume:true});
+ await local.write('cs:button_workout',{owner:'auth-b',candidate:{...initialCandidate(),visit_id:'button-b',source:'manual',place_id:''}});await sync();
+ assert.equal(instances.size,1);
+});
+
 test('A manually dismissed card stays dismissed for that visit, but a new arrival can start one',async()=>{
  const {state}=await prepare();await sync();const binding=await local.read('cs:live_activity',null);instances.delete(binding.id);
  await sync();await sync({resume:true});state.candidate.workout_label='Boxing';await local.write('cs:tracking',state);await sync();

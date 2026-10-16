@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {native} from './native-harness.mjs';
 const local=await import('../src/db/local.ts');
-const {authenticatedOwner,savedSessionOwner}=await import('../src/auth/client.ts');
+const {authenticatedOwner,savedSessionOwner,localOwner}=await import('../src/auth/client.ts');
 const offline={name:'AuthRetryableFetchError',message:'Failed to fetch'};
 const key='auth:sb-synthetic-auth-token';
 
@@ -26,4 +26,17 @@ test('The saved session owner is read without the network, and not after sign-ou
  await local.write(key,JSON.stringify({access_token:'a',refresh_token:'r',expires_at:1,user:{id:'auth-a'}}));
  await local.purge();
  assert.equal(await savedSessionOwner(),null);
+});
+
+test('Local-only actions use the saved owner offline, only for the account this phone is bound to',async()=>{
+ await local.purge();await local.write('auth_blocked',false);await local.bindOwner('auth-a');
+ await local.write(key,JSON.stringify({access_token:'a',refresh_token:'r',expires_at:1,user:{id:'auth-a'}}));
+ native.session=null;native.sessionError=offline;
+ try{
+  assert.equal(await localOwner(),'auth-a');
+  await local.write(key,JSON.stringify({access_token:'a',refresh_token:'r',expires_at:1,user:{id:'auth-b'}}));
+  await assert.rejects(()=>localOwner(),/^Error: AUTH_REQUIRED$/);
+  native.sessionError={name:'AuthApiError',message:'Invalid Refresh Token'};
+  await assert.rejects(()=>localOwner(),/^Error: AUTH_REQUIRED$/);
+ }finally{native.sessionError=null;}
 });
