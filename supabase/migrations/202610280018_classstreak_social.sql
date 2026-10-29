@@ -73,8 +73,8 @@ create table classstreak.active_workouts(
 create table classstreak.workout_photos(
  path text primary key,
  user_id uuid not null references classstreak.users on delete cascade,
- workout_id uuid not null,kind text not null check(kind in('pre','post')),
- share_to_feed boolean not null default true,created_at timestamptz not null default now(),
+ workout_id uuid not null,kind text not null check(kind in('pre','mid','post')),
+ share_to_feed boolean not null default true,caption text check(length(caption)<=240),created_at timestamptz not null default now(),
  unique(workout_id,kind));
 
 alter table classstreak.mutes enable row level security;
@@ -464,14 +464,14 @@ declare u uuid:=classstreak.me();w classstreak.active_workouts;wid uuid;starts t
   return jsonb_build_object('active',false);
  elsif action='photo' then
   photo:=payload->>'path';photo_kind:=payload->>'kind';
-  if photo_kind is null or photo_kind not in('pre','post') or photo is null or split_part(photo,'/',2)<>wid::text or photo !~ '^[0-9a-f-]{36}/[0-9a-f-]{36}/[0-9a-f-]{36}\.jpg$' or split_part(photo,'/',1)<>auth.uid()::text then raise exception 'FORBIDDEN';end if;
+  if photo_kind is null or photo_kind not in('pre','mid','post') or photo is null or split_part(photo,'/',2)<>wid::text or photo !~ '^[0-9a-f-]{36}/[0-9a-f-]{36}/[0-9a-f-]{36}\.jpg$' or split_part(photo,'/',1)<>auth.uid()::text then raise exception 'FORBIDDEN';end if;
   if not exists(select 1 from classstreak.active_workouts where id=wid and user_id=u) and not exists(select 1 from classstreak.sessions where id=wid and user_id=u and removed_at is null) then raise exception 'FORBIDDEN';end if;
   if exists(select 1 from classstreak.workout_photos wp where wp.path=photo and wp.user_id<>u) then raise exception 'FORBIDDEN';end if;
   if not classstreak.uploaded(photo) then raise exception 'PHOTO_NOT_UPLOADED';end if;
   perform classstreak.throttle(u,'workout_photo',40);
   delete from classstreak.workout_photos wp where wp.workout_id=wid and wp.kind=photo_kind and wp.user_id=u and wp.path<>photo;
-  insert into classstreak.workout_photos(path,user_id,workout_id,kind,share_to_feed) values(photo,u,wid,photo_kind,coalesce((payload->>'share')::boolean,true))
-   on conflict(path) do update set share_to_feed=excluded.share_to_feed;
+  insert into classstreak.workout_photos(path,user_id,workout_id,kind,share_to_feed,caption) values(photo,u,wid,photo_kind,coalesce((payload->>'share')::boolean,true),nullif(left(btrim(payload->>'caption'),240),''))
+   on conflict(path) do update set share_to_feed=excluded.share_to_feed,caption=excluded.caption;
   perform classstreak.touch(u);return public.cs_snapshot();
  elsif action='share' then
   update classstreak.workout_photos wp set share_to_feed=coalesce((payload->>'share')::boolean,true) where wp.path=payload->>'path' and wp.user_id=u;
@@ -500,6 +500,11 @@ declare z text;ends timestamptz;label text;begin
  end if;
  delete from classstreak.active_workouts where id=w.id;
 end $$;
+
+-- When a timer's session is saved (by the phone or above), its live card ends.
+create function classstreak.session_closes_live() returns trigger language plpgsql security definer set search_path='' as $$
+begin delete from classstreak.active_workouts where id=new.id;return new;end $$;
+create trigger cs_session_closes_live after insert on classstreak.sessions for each row execute function classstreak.session_closes_live();
 
 -- Live list for the feed: accepted friends who are working out right now.
 create function classstreak.live_workouts(viewer uuid) returns jsonb language sql stable security definer set search_path='' as $$
@@ -548,7 +553,7 @@ declare u uuid:=classstreak.me();result jsonb;begin
  result:=public.cs_snapshot_before_social();
  return result||jsonb_build_object(
   'feed',coalesce((select jsonb_agg(f||jsonb_build_object('avatar_path',p.avatar_path,'photos',coalesce((
-    select jsonb_agg(jsonb_build_object('path',wp.path,'kind',wp.kind,'share_to_feed',wp.share_to_feed) order by wp.kind desc)
+    select jsonb_agg(jsonb_build_object('path',wp.path,'kind',wp.kind,'share_to_feed',wp.share_to_feed,'caption',wp.caption) order by array_position(array['pre','mid','post'],wp.kind))
     from classstreak.workout_photos wp where wp.workout_id=(f->>'id')::uuid and wp.user_id=(f->>'user_id')::uuid and (wp.share_to_feed or wp.user_id=u)),'[]')) order by x.n)
    from jsonb_array_elements(result->'feed') with ordinality x(f,n) left join classstreak.users p on p.id=(x.f->>'user_id')::uuid),'[]'),
   'live',classstreak.live_workouts(u),

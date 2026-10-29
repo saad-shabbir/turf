@@ -84,3 +84,12 @@ export function plannedReminders(planning:WeeklyPlanning,snapshot:Snapshot,now:D
  }
  return reminders.sort((a,b)=>a.at.getTime()-b.at.getTime()||a.id.localeCompare(b.id));
 }
+
+// Concrete planned workouts from last Monday through next Sunday, as shared
+// with friends (cs_plan_sync). Exact times are sent only when the person set one.
+export type SyncedPlanItem={day:string;slot:string;activity_key:ActivityKey;time:string|null;period:TimeOfDay};
+export function planItemsForSync(planning:WeeklyPlanning,monday:string):SyncedPlanItem[]{
+ const items:SyncedPlanItem[]=[];
+ for(let i=-7;i<14;i++){const day=shiftDay(monday,i);for(const w of workoutsOn(planning,day))items.push({day,slot:w.id.slice(0,120),activity_key:w.activity_key,time:validTime(w.time)?w.time:null,period:w.period});}
+ return items;
+}

@@ -17,8 +17,9 @@ export function startingPlace(places:Snapshot['places'],fix:Location.LocationObj
  return place;
 }
 let starting:Promise<Candidate>|undefined;
-export function startButtonWorkout(s:Snapshot,key:string){starting??=start(s,key).finally(()=>{starting=undefined;});return starting;}
-async function start(s:Snapshot,key:string){
+// A photo-verified start is its own proof, so it does not need a saved place nearby.
+export function startButtonWorkout(s:Snapshot,key:string,options:{photo?:boolean}={}){starting??=start(s,key,options).finally(()=>{starting=undefined;});return starting;}
+async function start(s:Snapshot,key:string,options:{photo?:boolean}){
  const owner=await localOwner(),epoch=await read('auth_epoch',0);const cache=await read<{auth:string;value:Snapshot}|null>('cs:snapshot',null);if(cache?.auth!==owner||cache.value.profile.id!==s.profile.id)throw new Error('AUTH_REQUIRED');
  const current=await trackingState();const existing=await buttonWorkout();
  if(existing?.owner===owner)return existing.candidate;
@@ -28,7 +29,8 @@ async function start(s:Snapshot,key:string){
  let place:Snapshot['places'][number]|undefined;
  if(enabled&&permission.status==='granted'){
   let timeout:ReturnType<typeof setTimeout>|undefined;
-  try{const fix=await Promise.race([Location.getCurrentPositionAsync({accuracy:Location.Accuracy.High}),new Promise<never>((_,reject)=>{timeout=setTimeout(()=>reject(new Error('Couldn’t confirm your location. Try again near your saved gym or studio.')),12000);})]);place=startingPlace(s.places,fix);}
+  try{const fix=await Promise.race([Location.getCurrentPositionAsync({accuracy:Location.Accuracy.High}),new Promise<never>((_,reject)=>{timeout=setTimeout(()=>reject(new Error('Couldn’t confirm your location. Try again near your saved gym or studio.')),options.photo?4000:12000);})]);place=startingPlace(s.places,fix);}
+  catch(error){if(!options.photo)throw error;}
   finally{if(timeout)clearTimeout(timeout);}
  }
  // A lookup failure never falls back to location-off mode.
@@ -43,7 +45,7 @@ async function start(s:Snapshot,key:string){
  });
  await syncWorkoutLiveActivity().catch(()=>{});return result;
 }
-export async function controlButtonWorkout(kind:'SELECT'|'RESTART'|'STOP',id:string,key?:string){
+export async function controlButtonWorkout(kind:'SELECT'|'RESTART'|'STOP',id:string,key?:string,endedAt?:number){
  const owner=await localOwner();let handled=false;
  await transaction(async db=>{
   const w=await read<ButtonWorkout|null>('cs:button_workout',null,db);if(!w||w.owner!==owner||w.candidate.visit_id!==id)return;
@@ -51,7 +53,7 @@ export async function controlButtonWorkout(kind:'SELECT'|'RESTART'|'STOP',id:str
   handled=true;const now=Date.now();if(now<Date.parse(w.candidate.entered_at))throw new Error('Your phone clock changed. Please try again.');
   if(kind==='STOP'){
    if(now-Date.parse(w.candidate.entered_at)<60000)throw new Error('Keep going for at least one minute before saving.');
-   const pending=await read<ButtonWorkout[]>('cs:button_pending',[],db);pending.push({...w,ended_at:new Date(Math.min(now,Date.parse(w.candidate.entered_at)+14400000)).toISOString()});
+   const pending=await read<ButtonWorkout[]>('cs:button_pending',[],db);pending.push({...w,ended_at:new Date(Math.min(endedAt??now,now,Date.parse(w.candidate.entered_at)+14400000)).toISOString()});
    await write('cs:button_pending',pending,db);await write('cs:button_workout',null,db);
   }else{const chosen=activity(key??w.candidate.activity_key);if(kind==='SELECT'&&chosen.key!==key)throw new Error('Choose a workout type.');await write('cs:button_workout',{...w,candidate:{...w.candidate,...(kind==='RESTART'?{entered_at:new Date(now).toISOString()}:{activity_key:chosen.key,workout_label:chosen.label})}},db);}
  });

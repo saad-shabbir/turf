@@ -32,7 +32,7 @@ test('Failed and ambiguous network writes never show success; a read checks if i
 });
 
 test('Worked-out, already-nudged, unavailable and demo profiles cannot send',async()=>{
- for(const patch of [{worked_out_today:true},{nudged_today:true},{nudge_available:false},{is_demo:true}]){
+ for(const patch of [{worked_out_today:true},{nudged_today:true,nudge_available:false},{nudge_available:false},{is_demo:true}]){
   let writes=0;const fixture=create(async name=>{if(name==='cs_friend_profile')return {...profile,...patch};++writes;return snapshot;});
   await fixture.session.load();await fixture.session.nudge();assert.equal(writes,0);
  }
@@ -64,4 +64,9 @@ test('Old or closed-screen profile reads cannot overwrite a newer read',async()=
 test('A denied or mismatched profile clears stale details',async()=>{
  let reads=0;const fixture=create(async()=>++reads===1?profile:{...profile,id:'other-person'});
  await fixture.session.load();await fixture.session.load();assert.equal(fixture.last().profile,null);assert.equal(fixture.last().error.message,'FORBIDDEN');
+});
+
+test('A missed-plan alert lets an already-nudged friend send one more when the server allows it',async()=>{
+ let writes=0;const fixture=create(async name=>{if(name==='cs_friend_profile')return {...profile,nudged_today:true,nudge_available:writes===0};++writes;return snapshot;});
+ await fixture.session.load();await fixture.session.nudge();assert.equal(writes,1);assert.equal(fixture.last().sent,true);
 });

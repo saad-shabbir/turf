@@ -5,6 +5,7 @@ import type {Candidate} from './engine';
 import {CustomActivity} from './ActivitySetup';
 import {Button,Card,Chip,Empty,Row,Txt,useTheme} from './ui';
 import type {Action} from './SessionScreens';
+import {TWO_HOURS} from './workoutRules';
 export function elapsedWorkout(start:string,now:number){
  const seconds=Math.min(14400,Math.max(0,Math.floor((now-Date.parse(start))/1000)));
  return [Math.floor(seconds/3600),Math.floor(seconds/60)%60,seconds%60].map(n=>String(n).padStart(2,'0')).join(':');
@@ -19,7 +20,9 @@ export function ActiveWorkout({candidate:c,snapshot:s,action,compact=false,busy=
   {c.source==='manual'&&<Txt muted size={12}>Started by you. Tap Stop when you finish; leaving won’t stop this timer. Saved as a manual workout.</Txt>}
   <Txt size={44} bold style={{fontVariant:['tabular-nums'],color:t.accent}}>{elapsedWorkout(c.entered_at,now)}</Txt>
   {compact?<Button secondary title="Choose workout / view timer" onPress={()=>action('navigate',{pane:'active-workout'})}/>:<><Txt bold>What are you hitting today?</Txt><Row style={{flexWrap:'wrap'}}>{keys.map(key=><View key={key} style={{maxWidth:'100%'}}><Chip title={activity(key).label} selected={c.activity_key===key} onPress={()=>{if(!busy)send('workout_select',key);}}/></View>)}</Row><CustomActivity onAdd={key=>{if(!busy)send('workout_select',key);}}/></>}
+  {c.source==='manual'&&now-Date.parse(c.entered_at)>=TWO_HOURS&&<Card style={{gap:10,backgroundColor:t.tint,borderWidth:0}}><Txt bold size={14}>Forgot to stop?</Txt><Txt muted size={12}>Save it at the 2-hour mark ({new Date(Date.parse(c.entered_at)+TWO_HOURS).toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit'})}). If you’re still going, keep the timer running. It stops by itself at 3 hours.</Txt><Button small title="Save at 2 hours" disabled={busy} onPress={()=>action('workout_stop',{visit_id:c.visit_id,ended_at:Date.parse(c.entered_at)+TWO_HOURS})}/></Card>}
   <Button title={busy?'Saving…':'Stop workout'} disabled={busy} onPress={()=>send('workout_stop')}/>
+  {c.source==='manual'&&<Button secondary title="End with a photo" icon="camera" disabled={busy} onPress={()=>action('navigate',{pane:'post-verify'})}/>}
   {!compact&&<Button secondary small title="Started too early? Restart timer" disabled={busy} onPress={()=>Alert.alert('Restart the timer?','Your workout will start from now. Time already elapsed will not count.',[{text:'Cancel',style:'cancel'},{text:'Restart timer',onPress:()=>send('workout_restart')}])}/>}
  </Card>;
 }

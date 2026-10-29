@@ -250,7 +250,7 @@ test('a timer last used after the 2-hour mark is credited to that moment, and a 
 
 test('people search finds discoverable people by name or @handle with their friend status',async()=>{
  const db=await fresh();try{
-  const a={...await setup(db,A,'Alice'),auth:A},b={...await setup(db,B,'Samira'),auth:B},c={...await setup(db,C,'Sam'),auth:C};
+  await setup(db,A,'Alice');const b={...await setup(db,B,'Samira'),auth:B},c={...await setup(db,C,'Sam'),auth:C};
   await actor(db,B);await assert.rejects(rpc(db,'cs_settings',['profile',{handle:'No Spaces'}]),/HANDLE_INVALID/);
   let snap=await rpc(db,'cs_settings',['profile',{handle:'@Sam_Lifts'}]);assert.equal(snap.profile.handle,'sam_lifts');
   await actor(db,C);await assert.rejects(rpc(db,'cs_settings',['profile',{handle:'sam_lifts'}]),/HANDLE_TAKEN/);
@@ -267,5 +267,22 @@ test('people search finds discoverable people by name or @handle with their frie
   await actor(db,B);await rpc(db,'cs_settings',['profile',{discoverable:false}]);
   await actor(db,A);assert.deepEqual((await rpc(db,'cs_people_search',['sam'])).map(p=>p.first_name),['Sam']);
   await actor(db,null);await assert.rejects(rpc(db,'cs_people_search',['sam']),/permission denied/);
+ }finally{await db.close();}
+});
+
+test('saving a timer session from the phone ends its live card and keeps mid-workout photos',async()=>{
+ const db=await fresh();try{
+  const a={...await setup(db,A,'Alice'),auth:A},b={...await setup(db,B,'Bob'),auth:B};await befriend(db,a,b);
+  await actor(db,A);const id=randomUUID();const started=new Date(Date.now()-40*60000).toISOString();
+  await rpc(db,'cs_workout',['start',{id,activity_key:'gym',started_at:started,started_by:'button'}]);
+  const mid=`${A}/${id}/${randomUUID()}.jpg`;await db.query('insert into storage.objects(bucket_id,name) values($1,$2)',['classstreak-photos',mid]);
+  await rpc(db,'cs_workout',['photo',{id,path:mid,kind:'mid',share:true}]);
+  await rpc(db,'cs_timed_session',[{auth_owner:A,id,activity_key:'gym',started_at:started,ended_at:new Date().toISOString()}]);
+  await actor(db,B);const snap=await rpc(db,'cs_snapshot');assert.equal(snap.live.length,0);assert.deepEqual(snap.feed.find(f=>f.id===id).photos.map(p=>p.kind),['mid']);
+  // After the session exists, a post photo can still be added to it.
+  await actor(db,A);const post=`${A}/${id}/${randomUUID()}.jpg`;await db.query('insert into storage.objects(bucket_id,name) values($1,$2)',['classstreak-photos',post]);
+  const mine=await rpc(db,'cs_workout',['photo',{id,path:post,kind:'post',share:false,caption:'  Done  '}]);
+  assert.deepEqual(mine.feed.find(f=>f.id===id).photos.map(p=>[p.kind,p.share_to_feed,p.caption]),[['mid',true,null],['post',false,'Done']]);
+  await actor(db,B);assert.deepEqual((await rpc(db,'cs_snapshot')).feed.find(f=>f.id===id).photos.map(p=>p.kind),['mid']);
  }finally{await db.close();}
 });

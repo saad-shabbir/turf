@@ -6,6 +6,7 @@ import { call, getSnapshot } from "./api";
 import { activity, type Place, type Source,type Snapshot } from "./model";
 import { evaluateVisit, distanceMeters,retainedVisitFixes, type Candidate, type Fix } from "./engine";
 import {notifyPendingVisit,notifySession,notifyArrival} from "./notifications";
+import {announceArrival} from "./live";
 import {captureHoldReason,type CaptureStatus} from "./syncRecovery";
 import {observeDeparture,type DepartureEvidence} from './departureRecovery';
 import {track} from './analytics';
@@ -105,7 +106,7 @@ export async function receiveEvent(event: VisitEvent, fix?: {lat:number;lng:numb
   await write("cs:logs",logs.slice(-100),db);await write("cs:tracking",{...state,[key]:candidate},db);if(event.source==='geofence')await write('cs:last_callback',event.observed_at,db);
  });
  await syncWorkoutLiveActivity().catch(()=>{});
- if(arrival)await notifyArrival(arrival.name,event.event_id).catch(()=>{});
+ if(arrival){await notifyArrival(arrival.name,event.event_id).catch(()=>{});await announceArrival().catch(()=>{});}
  if(startFixes||confirmExit)await ensureVisitFixes().catch(()=>write('cs:task_error','Arrival saved, but backup location updates could not start. Open the app to check tracking.'));
  if(stopFixes&&await Location.hasStartedLocationUpdatesAsync(FIX_TASK))await Location.stopLocationUpdatesAsync(FIX_TASK);
  if(refreshRegions){const state=await trackingState();if(!state.paused)await registerRegions(state).catch(()=>{});}

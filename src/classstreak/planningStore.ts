@@ -10,7 +10,10 @@ export async function loadWeeklyPlanning(snapshot:Snapshot):Promise<WeeklyPlanni
   const value=planningFromSnapshot(snapshot);await write(key(snapshot.profile.id),value,db);return value;
  });
 }
-export async function saveWeeklyPlanning(owner:string,value:WeeklyPlanning){await write(key(owner),value);}
+// The app uploads the plan for friends whenever it changes on this phone.
+let changed:((owner:string)=>void)|undefined;
+export function onPlanningChanged(listener:((owner:string)=>void)|undefined){changed=listener;}
+export async function saveWeeklyPlanning(owner:string,value:WeeklyPlanning){await write(key(owner),value);changed?.(owner);}
 export async function seedWeeklyPlanning(owner:string,schedules:Schedule[]){
  await transaction(async db=>{
   const existing=await read<WeeklyPlanning|null>(key(owner),null,db);
@@ -23,6 +26,7 @@ export async function replaceWeeklySchedules(owner:string,schedules:Schedule[]){
   const previous=await read<WeeklyPlanning>(key(owner),emptyPlanning(),db);
   await write(key(owner),{...previous,rules:schedulesToRules(schedules)},db);
  });
+ changed?.(owner);
 }
 export async function savedPlanningSchedules(snapshot:Snapshot):Promise<Schedule[]>{
  const plan=await loadWeeklyPlanning(snapshot);const keys=[...new Set([...snapshot.goals.map(g=>g.activity_key),...snapshot.pending_goals.map(g=>g.activity_key),...plan.rules.map(r=>r.activity_key)])];return keys.map(activity_key=>{

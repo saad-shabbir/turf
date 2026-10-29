@@ -37,3 +37,9 @@ Physical acceptance still requires SideStore installation, real entry/exit and o
 The native iPhone app and widget were built by GitHub Actions without the Google key. The delivered local IPA combines that unsigned native payload with the current production bundle and assets, compiled from local .env. This is a native bundle embedding step, not an OTA update. `scripts/package-local-bundle.py` refuses native input changes or a Hermes format mismatch, preserves all other ZIP entries, and records source/native commits and hashes in a provenance file. Do not upload the local IPA publicly without accounting for its bundled client Places key.
 
 After downloading the successful native artifact, compile with `npx expo export:embed --entry-file index.ts --platform ios --dev false --bytecode --bundle-output build/local-bundle/main.jsbundle --assets-dest build/local-bundle`. Then run `python scripts/package-local-bundle.py build/native-release/ClassStreak-unsigned.ipa build/local-bundle build/ClassStreak.ipa --native-ref 3240202`. If native inputs differ, run a new native build instead. The platform/framework inspection is performed in the native workflow; the repackager proves those bytes remain unchanged.
+
+## Social update (migration 202610280018)
+1. Apply `supabase/migrations/202610280018_classstreak_social.sql` like the others, then run `supabase/schedule-classstreak-social.sql` (step 1) for the 5-minute missed-plan and forgotten-timer checks.
+2. Deploy `send_push` with `--no-verify-jwt`. It only drains the queue and uses the built-in service key.
+3. Push goes live when: tokens appear in `classstreak.push_tokens` (the installed build has the push entitlement), the APNs key for `com.turf.privatealpha` is on Expo for `@saadpm1/turf`, and step 2 of the schedule file sets `push_config` and the 1-minute sender.
+

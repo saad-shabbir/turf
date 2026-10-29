@@ -29,7 +29,7 @@ import {Scanner} from "./Scanner";
 import {copyInvite,matchContacts,shareInvite,subscribeSocial} from "./social";
 import {pastedCodes} from "./clipboardCodes";
 import * as Haptics from "expo-haptics";
-import {Post,Celebration} from "./Post";
+import {Celebration} from "./Post";
 import {syncPhotos,discardQueuedPhotos} from "./photos";
 import {Studios,StudioQR} from "./Studios";
 import {demoPlaces} from "./demo-places";
@@ -37,9 +37,15 @@ import {Plus} from "./Plus";
 import {Health,connectHealth,syncHealth} from "./Health";
 import {updateWidget} from "./widgets";
 import {track} from "./analytics";
-import {seedWeeklyPlanning,replaceWeeklySchedules} from './planningStore';
+import {seedWeeklyPlanning,replaceWeeklySchedules,onPlanningChanged} from './planningStore';
 import {liveSnapshot} from './liveSnapshot';
 import {syncWorkoutLiveActivity,clearWorkoutLiveActivity} from './workoutLiveActivity';
+import {PhotoFlow} from './PhotoFlow';
+import {Conversations,Thread} from './Messages';
+import {syncLiveWorkout,registerWorkoutCategory,cancelWorkoutChecks,creditedEnd,lastActivity,THREE_HOURS} from './live';
+import {registerPush,unregisterPush} from './push';
+import {syncPlan} from './planSync';
+import {chooseAvatar,removeAvatar,clearPhotoCache} from './avatars';
 
 async function saveLinkedPlace(place:Place){
  const s=await getSnapshot();const previous=s.places.find(p=>place.google_place_id?p.google_place_id===place.google_place_id:p.name===place.name&&Math.abs(p.lat-place.lat)<.00001&&Math.abs(p.lng-place.lng)<.00001);
@@ -77,6 +83,8 @@ export default function ClassStreakApp() {
   const [authId,setAuthId]=useState<string|null>(null);const [contactMatches,setContactMatches]=useState<{id:string;first_name:string}[]>([]);
   const [studioQR,setStudioQR]=useState<{name:string;code:string}|null>(null);
   const authEpoch=useRef(0);
+  const snapshotRef=useRef<Snapshot|null>(null);useEffect(()=>{snapshotRef.current=snapshot;},[snapshot]);
+  const actionRef=useRef<Action|null>(null);const [photoReturn,setPhotoReturn]=useState('home');
   const demoPreview=useRef(false);
   const setSnapshot=useCallback((value:Snapshot|null)=>setSnapshotState(value&&!demoPreview.current?liveSnapshot(value):value),[]);
   const change = useCallback((patch: Partial<Draft>) => {if(patch.step!==undefined)track("onboarding_step",{n:patch.step});if(patch.selected)track("activities_selected",{n:patch.selected.length});if(patch.theme)track("theme_selected");if(patch.days)track("usual_days_set",{days:patch.days});setDraft(previous => { const value = { ...previous, ...patch }; void write("cs:draft", value).catch(() => {}); return value; });},[]);
@@ -103,8 +111,10 @@ export default function ClassStreakApp() {
       try{updateWidget(value);void write('cs:widget_status','updated '+new Date().toISOString());}catch(e){void write('cs:widget_status','error: '+(e instanceof Error?e.message:String(e)).slice(0,160));}void syncHealth(value).catch(()=>{});
       void syncWorkoutLiveActivity({resume:true}).catch(()=>{});
       void scheduleReminders(value).catch(()=>{});
+      void syncPlan(value).catch(()=>{});void registerPush().catch(()=>{});
+      const dmSeen=await read<number>('cs:dm_seen',0);const dms=value.dm_unread??0;if(dms>dmSeen)setMessage(dms===1?'You have a new message.':`You have ${dms} unread messages.`);if(dms!==dmSeen)await write('cs:dm_seen',dms);
       const milestone=await announceMilestones(value).catch(()=>null);if(milestone){setPane('milestone:'+milestone);track('milestone',{count:milestone});}
-      const unread=value.inbox.filter(i=>!i.read_at);const previous=await read<string[]>("cs:inbox_seen",[]);const fresh=unread.filter(i=>!previous.includes(i.id));if(fresh.length){const nudge=fresh.find(i=>i.kind==="nudge");setMessage(nudge?.body??`${unread.length} update${unread.length===1?"":"s"} from friends in your inbox.`);await write("cs:inbox_seen",unread.map(i=>i.id));}
+      const unread=value.inbox.filter(i=>!i.read_at);const previous=await read<string[]>("cs:inbox_seen",[]);const fresh=unread.filter(i=>!previous.includes(i.id));if(fresh.length){const nudge=fresh.find(i=>i.kind==="plan_missed")??fresh.find(i=>i.kind==="nudge")??fresh.find(i=>i.kind==="friend_started"||i.kind==="workout_stopped");setMessage(nudge?.body??`${unread.length} update${unread.length===1?"":"s"} from friends in your inbox.`);await write("cs:inbox_seen",unread.map(i=>i.id));}
     }
     catch (e) {
       if (e instanceof Error && e.message === "SETUP_REQUIRED") return;
@@ -123,7 +133,9 @@ export default function ClassStreakApp() {
     const foreground=async()=>{await reconcileTracking().catch(()=>{});await syncPhotos().catch(()=>{});await refresh();};
     const app = AppState.addEventListener("change", state => { if (state === "active") void foreground().catch(() => {}); });
     onSessionsCreated(async ids=>{await refresh();if(AppState.currentState==="active"&&ids[0])setPane("session:"+ids[0]);});
-    const notification=notificationResponse(setPane);
+    void registerWorkoutCategory().catch(()=>{});
+    const notification=notificationResponse((target,extra)=>{if(extra?.action==='stop'&&extra.visit_id)actionRef.current?.('workout_stop',{visit_id:extra.visit_id});else setPane(target);});
+    onPlanningChanged(()=>{const current=snapshotRef.current;if(current)void syncPlan(current,true).catch(()=>{});});
     const handle = async (url: string) => {
       const parsed = new URL(url); const hash = new URLSearchParams(parsed.hash.slice(1)); const code = parsed.searchParams.get("code");
       if (hash.get("type") === "recovery" && hash.get("access_token") && hash.get("refresh_token")) {
@@ -142,12 +154,18 @@ export default function ClassStreakApp() {
     };
     void Linking.getInitialURL().then(url => url ? handle(url) : undefined).catch(() => {});
     const links = Linking.addEventListener("url", e => { void handle(e.url).catch(e => setMessage(safeMessage(e))); });
-    return () => { app.remove(); links.remove();notification.remove();onSessionsCreated(async()=>{}); };
+    return () => { app.remove(); links.remove();notification.remove();onSessionsCreated(async()=>{});onPlanningChanged(undefined); };
   }, [refresh,change,setSnapshot]);
   useEffect(()=>{
     if(!signedIn)return;
     let cancelled=false;
-    const update=async()=>{if(AppState.currentState!=="active")return;const state=await trackingState();const button=await buttonWorkout();if(!cancelled)setActiveWorkout(button?.owner===authId?button.candidate:state.owner===authId&&!state.paused?state.candidate:null);};
+    const update=async()=>{if(AppState.currentState!=="active")return;const state=await trackingState();let button=await buttonWorkout();
+      // A timer nobody stopped closes at 3 hours, credited to the 2-hour mark or the last time the app was used.
+      if(button?.owner===authId&&button.candidate.visit_id&&Date.now()-Date.parse(button.candidate.entered_at)>=THREE_HOURS){const id=button.candidate.visit_id;const end=creditedEnd(Date.parse(button.candidate.entered_at),await lastActivity(id));if(await controlButtonWorkout('STOP',id,undefined,end).catch(()=>false)){await cancelWorkoutChecks(id);if(!cancelled)setMessage(`Your workout timer ran for 3 hours, so we saved it at ${Math.round((end-Date.parse(button.candidate.entered_at))/60000)} minutes. You can edit it in History.`);button=await buttonWorkout();}}
+      const current=button?.owner===authId?button.candidate:state.owner===authId&&!state.paused?state.candidate:null;
+      if(!cancelled)setActiveWorkout(current);
+      void syncLiveWorkout(current,snapshotRef.current?.profile.notification_preferences.workout_check!==false).catch(()=>{});
+    };
     void update().catch(()=>{});const timer=setInterval(()=>void update().catch(()=>{}),2000);
     return()=>{cancelled=true;clearInterval(timer);};
   },[signedIn,authId]);
@@ -164,11 +182,13 @@ export default function ClassStreakApp() {
     if(await read("cs:pending_studio",false)){setPane("studios");await write("cs:pending_studio",false);}
     if(draft.location_consent&&value.places.some(p=>p.enabled))await startTracking().catch(()=>setMessage("Your setup is saved. Automatic tracking can be enabled in Account when location is allowed."));
   };
-  const signOut=async()=>{demoPreview.current=false;authEpoch.current++;try{updateWidget(null);}catch{}await clearWorkoutLiveActivity().catch(()=>{});await stopTracking();await clearNotifications();await backend().auth.signOut({scope:"local"});await purge();setSnapshot(null);setSignedIn(false);setActiveWorkout(null);setAuthId(null);setDraft(newDraft());setPane("home");setMode("signin");};
+  const signOut=async()=>{await unregisterPush().catch(()=>{});clearPhotoCache();demoPreview.current=false;authEpoch.current++;try{updateWidget(null);}catch{}await clearWorkoutLiveActivity().catch(()=>{});await stopTracking();await clearNotifications();await backend().auth.signOut({scope:"local"});await purge();setSnapshot(null);setSignedIn(false);setActiveWorkout(null);setAuthId(null);setDraft(newDraft());setPane("home");setMode("signin");};
   const action:Action=(name,payload={})=>{
     if(name==='friend_snapshot'){const updated=payload.snapshot as Snapshot|undefined;if(updated?.profile?.id)setSnapshotState(current=>current?.profile.id===updated.profile.id?(demoPreview.current?updated:liveSnapshot(updated)):current);return;}
+    if(name==="navigate"&&String(payload.pane).startsWith("post")&&!pane.startsWith("post"))setPhotoReturn(pane);
+    if(name==="workout_started"){const c=payload.candidate as Candidate;setActiveWorkout(c);setPane('active-workout');setMessage('Workout started. Friends will see your photo once it uploads.');void refresh().catch(()=>{});return;}
     if(name==="navigate"){setPane(String(payload.pane));if(payload.pane==='plus')track('paywall_viewed',{placement:pane});return;}
-    if(name==="post"){setPane("post:"+String(payload.id));return;}
+    if(name==="post"){setPhotoReturn(pane);setPane("post:"+String(payload.id));return;}
     if(name==="message"){setMessage(String(payload.text));return;}
     if(name==="error"){setMessage(safeMessage(payload.error));return;}
     if(name==="edit_place"){setEditingPlace(String(payload.id));setPane("add-place");return;}
@@ -180,7 +200,9 @@ export default function ClassStreakApp() {
       if(name==="workout_start"&&snapshot){const c=await startButtonWorkout(snapshot,String(payload.activity_key));setActiveWorkout(c);setPane("active-workout");return;}
       if(name.startsWith("workout_")){
         const kind=name==="workout_stop"?"STOP":name==="workout_restart"?"RESTART":"SELECT";
-        if(!await controlButtonWorkout(kind,String(payload.visit_id),payload.activity_key?String(payload.activity_key):undefined))await controlWorkout(kind,String(payload.visit_id),payload.activity_key?String(payload.activity_key):undefined);
+        const endedAt=typeof payload.ended_at==='number'?payload.ended_at:undefined;
+        if(!await controlButtonWorkout(kind,String(payload.visit_id),payload.activity_key?String(payload.activity_key):undefined,endedAt))await controlWorkout(kind,String(payload.visit_id),payload.activity_key?String(payload.activity_key):undefined);
+        if(kind==="STOP")await cancelWorkoutChecks(String(payload.visit_id));
         setActiveWorkout((await buttonWorkout())?.candidate??(await trackingState()).candidate);
         if(kind==="STOP"){setPane("home");setMessage("Workout saved on this iPhone. It will sync when connected.");await refresh().catch(()=>{});}
         return;
@@ -194,7 +216,9 @@ export default function ClassStreakApp() {
         setSnapshot(demoPreview.current?saved:liveSnapshot(saved));if(wasActive)await startTracking();
         if(kind==='days'||kind==='profile')await scheduleReminders(saved);
         setMessage(kind==="goals"?"Saved for next Monday.":kind==="days"?"Usual days saved.":"Saved.");
-      }else if(name==='connect_health'){await connectHealth();await refresh();setMessage('Apple Health matching is enabled.');}
+      }else if(name==='avatar'){const source=String(payload.source);const updated=source==='remove'?await removeAvatar(snapshot?.profile.avatar_path):await chooseAvatar(source==='camera'?'camera':'library',snapshot?.profile.avatar_path);if(updated){setSnapshot(updated);setMessage(source==='remove'?'Profile photo removed.':'Profile photo updated.');}}
+      else if(name==='workout_photo_share'){setSnapshot(await call<Snapshot>('cs_workout',{action:'share',payload}));setMessage(payload.share?'Shared with friends.':'Hidden from your friends’ feeds.');}
+      else if(name==='connect_health'){await connectHealth();await refresh();setMessage('Apple Health matching is enabled.');}
       else if(name==='sync_health'&&snapshot){await syncHealth(snapshot,true);await refresh();setMessage('Matching workouts checked.');}
       else if(name==="edit_session"||name==="remove_session"||name==="manual_session"){
         const updated=await call<Snapshot>("cs_session",{action:name==="edit_session"?"edit":name==="remove_session"?"remove":"manual",payload});setSnapshot(updated);await scheduleReminders(updated);if(name==="remove_session")await discardQueuedPhotos(String(payload.id));if(name!=="edit_session")setPane("history");
@@ -207,7 +231,7 @@ export default function ClassStreakApp() {
       else if(name==="test_reminder")await testReminder();
       else if(name==="enable_notifications"){setMessage(await enableNotifications()?"Phone reminders enabled.":"You can enable notifications in iPhone Settings.");await refresh();}
       else if(name==="timezone"){const tz=Intl.DateTimeFormat().resolvedOptions().timeZone;await saveSettings("timezone",{tz});setMessage(`Timezone ${tz} applies from next Monday.`);}
-      else if(name==="social"){setSnapshot(await call<Snapshot>("cs_social",payload));if(payload.action==="reaction")void Haptics.selectionAsync();if(payload.action==="nudge")setMessage("Nudge sent to their ClassStreak inbox.");if(payload.action==="comment")setMessage("Comment posted.");}
+      else if(name==="social"){setSnapshot(await call<Snapshot>("cs_social",payload));if(payload.action==="reaction")void Haptics.selectionAsync();if(payload.action==="nudge")setMessage("Nudge sent.");if(payload.action==="request")setMessage("Friend request sent.");if(payload.action==="mute")setMessage("Muted. You won’t get alerts about them.");if(payload.action==="unmute")setMessage("Alerts turned back on.");if(payload.action==="comment")setMessage("Comment posted.");}
       else if(name==="delete_comment"||name==="report_comment"){setSnapshot(await call<Snapshot>("cs_social",{action:name==="delete_comment"?"delete_comment":"report",payload}));setMessage(name==="delete_comment"?"Comment removed.":"Comment reported.");}
       else if(name==="phone"){await call("cs_contacts",{action:"save",phone:payload.phone});await refresh();setMessage("Phone preference saved.");}
       else if(name==="contacts"){if(!snapshot?.profile.phone_set)throw new Error("Add your phone number in Account first, or use a link, QR or friend code.");const matches=await matchContacts();setContactMatches(matches);if(!matches.length)setMessage("No matches yet. You can still share your invite.");}
@@ -218,7 +242,8 @@ export default function ClassStreakApp() {
       else throw new Error("This action is not connected yet.");
     });
   };
-  const extra=(target:string)=>target.startsWith("friend:")&&snapshot?<FriendProfile key={snapshot.profile.id+":"+target} peerId={target.slice(7)} snapshot={snapshot} action={action}/>:target==="active-workout"&&snapshot?<ActiveWorkout candidate={activeWorkout} snapshot={snapshot} action={action} busy={busy}/>:target==="health"&&snapshot?<Health snapshot={snapshot} action={action}/>:target==="studios"&&snapshot?<Studios snapshot={snapshot} action={action}/>:target==="studio-qr"&&studioQR?<StudioQR {...studioQR} action={action}/>:(target==="recap"||target.startsWith("milestone:"))&&snapshot?<Celebration celebrate={celebrationKey===snapshot.profile.id+":"+target} snapshot={snapshot} action={action} now={new Date(observedNow+clockOffset)} milestone={target.startsWith("milestone:")?Number(target.slice(10)):undefined}/>:target==="friends"&&snapshot?<Friends snapshot={snapshot} action={action} now={new Date(observedNow+clockOffset)}/>:target==="add-friends"&&snapshot?<AddFriends snapshot={snapshot} action={action} matches={contactMatches}/>:target==="scan"?<Scanner action={action}/>:target==="debug"&&snapshot?<Debug snapshot={snapshot} action={action} refresh={refresh}/>:target==="add-place"?<PlacesPicker choices={[...new Set([...(snapshot?.goals??[]).map(g=>g.activity_key),...(snapshot?.pending_goals??[]).map(g=>g.activity_key)])]} value={snapshot?.places.find(p=>p.id===editingPlace)??null} onSelect={place=>{action("settings",{kind:"place",payload:{...place,id:place.id||undefined}});setEditingPlace(null);setPane("places");}} onError={e=>setMessage(safeMessage(e))}/>:target==="privacy"?<><Txt serif size={32}>Terms and privacy</Txt><Txt>ClassStreak records visits to the places you save. Location observations and exact visit times are private to your account. Accepted friends see session summaries, photos and comments from the day you became friends.</Txt><Txt>Place names are shared only when both sharing switches are on. Studio boards show first name and last initial when you opt in. You can pause tracking, remove a session, unfriend someone or delete your account.</Txt><Txt>Automatic detection can miss a visit or estimate a departure. A recorded visit does not prove exercise or attendance at a class. Demo and simulated records are labeled.</Txt><Txt>Your account data is stored by Supabase. Google receives studio searches. Photos you export through another app are subject to that app’s audience and policies.</Txt></>:null;
+  useEffect(()=>{actionRef.current=action;});
+  const extra=(target:string)=>target==="messages"&&snapshot?<Conversations snapshot={snapshot} action={action}/>:target.startsWith("friend:")&&snapshot?<FriendProfile key={snapshot.profile.id+":"+target} peerId={target.slice(7)} snapshot={snapshot} action={action}/>:target==="active-workout"&&snapshot?<ActiveWorkout candidate={activeWorkout} snapshot={snapshot} action={action} busy={busy}/>:target==="health"&&snapshot?<Health snapshot={snapshot} action={action}/>:target==="studios"&&snapshot?<Studios snapshot={snapshot} action={action}/>:target==="studio-qr"&&studioQR?<StudioQR {...studioQR} action={action}/>:(target==="recap"||target.startsWith("milestone:"))&&snapshot?<Celebration celebrate={celebrationKey===snapshot.profile.id+":"+target} snapshot={snapshot} action={action} now={new Date(observedNow+clockOffset)} milestone={target.startsWith("milestone:")?Number(target.slice(10)):undefined}/>:target==="friends"&&snapshot?<Friends snapshot={snapshot} action={action} now={new Date(observedNow+clockOffset)}/>:target==="add-friends"&&snapshot?<AddFriends snapshot={snapshot} action={action} matches={contactMatches}/>:target==="scan"?<Scanner action={action}/>:target==="debug"&&snapshot?<Debug snapshot={snapshot} action={action} refresh={refresh}/>:target==="add-place"?<PlacesPicker choices={[...new Set([...(snapshot?.goals??[]).map(g=>g.activity_key),...(snapshot?.pending_goals??[]).map(g=>g.activity_key)])]} value={snapshot?.places.find(p=>p.id===editingPlace)??null} onSelect={place=>{action("settings",{kind:"place",payload:{...place,id:place.id||undefined}});setEditingPlace(null);setPane("places");}} onError={e=>setMessage(safeMessage(e))}/>:target==="privacy"?<><Txt serif size={32}>Terms and privacy</Txt><Txt>ClassStreak records visits to the places you save. Location observations and exact visit times are private to your account. Accepted friends see session summaries, photos and comments from the day you became friends.</Txt><Txt>Place names are shared only when both sharing switches are on. Studio boards show first name and last initial when you opt in. You can pause tracking, remove a session, unfriend someone or delete your account.</Txt><Txt>Automatic detection can miss a visit or estimate a departure. A recorded visit does not prove exercise or attendance at a class. Demo and simulated records are labeled.</Txt><Txt>Your account data is stored by Supabase. Google receives studio searches. Photos you export through another app are subject to that app’s audience and policies.</Txt></>:null;
   const pasteCodes=async()=>{
     const codes=await pastedCodes();
     if(!codes.invite_code&&!codes.studio_code){setMessage("No ClassStreak friend code or studio link on the clipboard.");return;}
@@ -264,7 +289,7 @@ export default function ClassStreakApp() {
       })} />
       {mode === "signin" && <Button secondary title="Forgot password" onPress={() => setMode("forgot")} />}
       <Button secondary title="Back" onPress={() => setMode("onboarding")} />
-    </Screen> : snapshot ? pane==="plus"?<Plus close={()=>setPane("profile")} start={()=>{setMessage("Coming soon");setPane("profile");}}/>:(pane==="post"||pane.startsWith("post:"))?<Post snapshot={snapshot} sessionId={pane.startsWith("post:")?pane.slice(5):undefined} action={action} now={new Date(observedNow+clockOffset)} onSaved={refresh}/>:<Product activeWorkout={activeWorkout} busy={busy} snapshot={snapshot} pane={pane} action={action} extra={extra} now={new Date(observedNow+clockOffset)} tracking={tracking}/> : <Onboarding key={draft.step} draft={draft} change={change} next={() => change({ step: Math.min(9, draft.step + 1) })} requestLocation={() => run(async () => {
+    </Screen> : snapshot ? pane==="plus"?<Plus close={()=>setPane("profile")} start={()=>{setMessage("Coming soon");setPane("profile");}}/>:pane.startsWith("dm:")?<Thread key={pane} peerId={pane.slice(3)} snapshot={snapshot} action={action}/>:(pane==="post"||pane==="post-verify"||pane.startsWith("post:"))?<><Product activeWorkout={activeWorkout} busy={busy} snapshot={snapshot} pane={photoReturn.startsWith("post")?"home":photoReturn} action={action} extra={extra} now={new Date(observedNow+clockOffset)} tracking={tracking}/><PhotoFlow key={pane} snapshot={snapshot} activeWorkout={activeWorkout} verify={pane==="post-verify"} sessionId={pane.startsWith("post:")?pane.slice(5):undefined} action={action} now={new Date(observedNow+clockOffset)} onSaved={refresh} onClose={()=>setPane(current=>current.startsWith("post")?(photoReturn.startsWith("post")?"home":photoReturn):current)}/></>:<Product activeWorkout={activeWorkout} busy={busy} snapshot={snapshot} pane={pane} action={action} extra={extra} now={new Date(observedNow+clockOffset)} tracking={tracking}/> : <Onboarding key={draft.step} draft={draft} change={change} next={() => change({ step: Math.min(9, draft.step + 1) })} requestLocation={() => run(async () => {
       const fg = await Location.requestForegroundPermissionsAsync();
       const bg=fg.status === "granted"?await Location.requestBackgroundPermissionsAsync():null;track("permission_result",{permission:bg?.granted?"always":fg.granted?"when_in_use":"denied"});
       change({ location_consent: fg.status === "granted", step: 6 });
