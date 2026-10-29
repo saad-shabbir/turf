@@ -38,3 +38,10 @@
 - Expo credentials (queried through the Expo API, because `eas credentials` has no non-interactive mode): the iOS push key `GQ77PWZVV7` (team YBRL6P4725) is assigned to `com.turf.privatealpha`. The widget bundle `com.turf.privatealpha.widgets` has no push key, which it doesn't need. The same key is also used by ForGood.
 - `select count(*) from classstreak.push_tokens` on turf: **0**. No device has registered yet, which is expected because the update that registers tokens has only just been published. `classstreak.push_config.enabled` is still `false`, so no pushes go out until step 2 of the schedule file (push_config and the push sender) is run.
 - No EAS build was started, and no Auth settings were changed.
+
+## Push sending turned on, 2026-10-29 UTC
+- Before: `pg_net` was not installed, `push_config` was off with no endpoint, and `send_push` was deployed with `verify_jwt=false` (version 1). `dispatch_push()` uses only `push_config.enabled` and `endpoint` and posts with no auth header, so no secret or extra setup is needed.
+- Ran step 2 of `supabase/schedule-classstreak-social.sql` through the Management API in one transaction: `create extension if not exists pg_net` (0.20.4), `push_config` set to enabled=true with endpoint `https://qrehonivhqcgfrjcpzqk.supabase.co/functions/v1/send_push`, and cron job `classstreak-push` (jobid 3, `* * * * *`, `select classstreak.dispatch_push()`), which is active.
+- Verified: `select classstreak.dispatch_push()` runs without error. `cron.job_run_details` shows `classstreak-push` succeeded, and `net._http_response` shows HTTP 200 `{"sent":0}` from `send_push`.
+- At switch-on: `classstreak.push_tokens` 0, push outbox 0 pending / 0 sent / 0 failed. Pushes start once testers reopen the app (with the published update) and allow notifications, which registers their tokens.
+- Recovery: `update classstreak.push_config set enabled=false;` (and `select cron.unschedule('classstreak-push');`). No migration was changed, no Auth setting was changed and no EAS build was started.
