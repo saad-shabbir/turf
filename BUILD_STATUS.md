@@ -16,3 +16,11 @@
 - Email signup and GitHub Pages activation remain pending user approval. The latter was rejected by automatic approval review as an additional public hosting surface. Existing authenticated users can use ClassStreak meanwhile.
 
 - Auth URL inspection found a localhost default with no mobile redirect allowlist. Adding the exact `turf://account` callback was prepared but rejected by automatic approval review; this setting also awaits explicit authorization. Confirmation/reset email return-to-app is therefore not operational yet. No confirmation/reset emails were sent during this check.
+
+## Deploy 2026-10-29: plan fallback (approved by Saad on 2026-10-28)
+- Commit `33d7dcd1e1cdc73f548b88ce1611ff3660d8f848` (main, PR #7). `npm ci` passed. Under Node 24.22.2, typecheck, lint, `npm test` (26/26), `test:db` (105/105) and `check:config` all passed.
+- Migration `202610290019_classstreak_plan_fallback.sql` was applied to turf (`qrehonivhqcgfrjcpzqk`) in one transaction through the Management API at 2026-10-29T06:26:58Z. Before applying, the hosted schema showed 0018 present (the `classstreak.messages` table, the `classstreak-social` cron, and `plan_days`/`cs_messages` bodies byte-identical to 202610280018) and 0019 absent. Until now, this file had no record of individual migrations by name.
+- After applying, `classstreak.plan_days` and `public.cs_messages` match the 0019 bodies, with grants unchanged (`plan_days` owner-only; `cs_messages` for authenticated and service_role). `plan_days` returned 7 days without error for a synced real user and an unsynced one. The `classstreak-push` (every minute) and `classstreak-social` (every 5 minutes) cron jobs are active. To roll back, re-create both functions from 202610280018.
+- `fingerprint:compare` against build 9 (`074a1683-f983-4782-967e-7ec0e609cbab`): `7a5bdc82abc50e41ab72d3eb819bf4f042c65633` matches.
+- EAS Update on channel production: update group `e3c2085e-059e-48e4-8b5a-50686ddc8a44`, iOS update `01a18659-3b53-73c6-acec-fd5c9cd12ba8`, runtime `7a5bdc82abc50e41ab72d3eb819bf4f042c65633`.
+- No EAS build was started. No Auth settings were changed.
