@@ -25,3 +25,16 @@
 - Deployed the `send_push` Edge Function with `--no-verify-jwt`. A POST returns HTTP 200 `{"sent":0}`.
 - **Stopped at fingerprint.** The latest finished iOS production build is build 9 (`074a1683-f983-4782-967e-7ec0e609cbab`, commit 4cae2ae). Its fingerprint is `7a5bdc82abc50e41ab72d3eb819bf4f042c65633`, and `fingerprint:compare` says it matches this checkout. The deploy brief expected `dafcdc6ea46941e53302dc1848373cec0c0a81b3`, and none of the listed builds has that fingerprint. Following the brief, no update was published. No EAS update IDs.
 - No EAS build was started.
+
+## Social update published, 2026-10-29 UTC
+- The fingerprint hold above came from a wrong expected value in the deploy brief. `fingerprint:compare` against build 9 is the check that counts, so the update was published.
+- Checkout: `main` at `4c270fa5f399fef84a0aa6487eca24dc3e15f43e`, clean tree after `npm ci`. Typecheck, lint and `check:config` pass on Node 22.
+- `npx eas-cli@latest fingerprint:compare --build-id 074a1683-f983-4782-967e-7ec0e609cbab`: build 9's fingerprint `7a5bdc82abc50e41ab72d3eb819bf4f042c65633` matches the local directory.
+- Published to channel/branch `production`. Update group ID `32dea6aa-0b95-44b7-ba36-e0e70ee1cd82` (iOS update `01a18612-47b9-7af4-bc06-f264879d4941`), runtime version `7a5bdc82abc50e41ab72d3eb819bf4f042c65633`, commit `4c270fa`. Message: "Messages, profile photos, shared plans, photo-verified workouts, live workouts with cheers, friend search and block". Testers get it after closing and reopening the app (twice: once to download, once to run it).
+
+### Push readiness of build 9
+- `embedded.mobileprovision` (profile "*[expo] com.turf.privatealpha AppStore", expires 2027-10-14): Entitlements include `aps-environment` = `production`, plus the app group, HealthKit and `beta-reports-active`.
+- Signed entitlements in the main `ClassStreak` binary also include `aps-environment` = `production`. The binary contains the expo-notifications push token code (`expo-notifications` 57.0.23).
+- Expo credentials (queried through the Expo API, because `eas credentials` has no non-interactive mode): the iOS push key `GQ77PWZVV7` (team YBRL6P4725) is assigned to `com.turf.privatealpha`. The widget bundle `com.turf.privatealpha.widgets` has no push key, which it doesn't need. The same key is also used by ForGood.
+- `select count(*) from classstreak.push_tokens` on turf: **0**. No device has registered yet, which is expected because the update that registers tokens has only just been published. `classstreak.push_config.enabled` is still `false`, so no pushes go out until step 2 of the schedule file (push_config and the push sender) is run.
+- No EAS build was started, and no Auth settings were changed.
