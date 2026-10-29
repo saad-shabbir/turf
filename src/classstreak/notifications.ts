@@ -26,8 +26,8 @@ export async function testReminder(){
  if(!await enableNotifications())throw new Error("Enable notifications in iPhone Settings to see reminders.");
  await Notifications.scheduleNotificationAsync({content:{title:"ClassStreak",body:"Your next session counts. This is a test reminder.",data:{pane:"home"}},trigger:{type:Notifications.SchedulableTriggerInputTypes.TIME_INTERVAL,seconds:3}});
 }
-export function notificationResponse(handle:(pane:string)=>void){
- const open=(r:Notifications.NotificationResponse)=>{const pane=r.notification.request.content.data?.pane;if(typeof pane==='string'){track('reminder_opened');handle(pane);}Notifications.clearLastNotificationResponse();};
+export function notificationResponse(handle:(pane:string,extra?:{action:string;visit_id?:string;from?:string})=>void){
+ const open=(r:Notifications.NotificationResponse)=>{const data=r.notification.request.content.data;const pane=data?.pane;if(typeof pane==='string'){track('reminder_opened');handle(pane,{action:r.actionIdentifier,visit_id:typeof data?.visit_id==='string'?data.visit_id:undefined,from:typeof data?.from==='string'?data.from:undefined});}Notifications.clearLastNotificationResponse();};
  const subscription=Notifications.addNotificationResponseReceivedListener(open);const initial=Notifications.getLastNotificationResponse();if(initial)open(initial);return subscription;
 }
 let reminderEpoch=0;

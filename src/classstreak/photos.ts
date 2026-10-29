@@ -8,10 +8,12 @@ import {read,write,transaction} from "../db/local";
 import {call} from "./api";
 import {inviteLink} from "./Friends";
 import {track} from './analytics';
-type Upload={id:string;owner:string;session_id:string;path:string;base64:string;note:string};
-export async function queuePhoto(uri:string,sessionId:string,note:string){
+type Upload={id:string;owner:string;session_id:string;path:string;base64:string;note:string;workout_kind?:'pre'|'mid'|'post';share?:boolean};
+// A workout photo belongs to a workout in progress or its saved session (same
+// id for timer workouts). share controls whether friends see it in the feed.
+export async function queuePhoto(uri:string,sessionId:string,note:string,workout?:{kind:'pre'|'mid'|'post';share:boolean}){
  const owner=await localOwner();const id=Crypto.randomUUID();const file=new File(uri);if(file.size>10485760)throw new Error("Choose a smaller photo.");
- const upload:Upload={id,owner,session_id:sessionId,path:`${owner}/${sessionId}/${id}.jpg`,base64:await file.base64(),note};
+ const upload:Upload={id,owner,session_id:sessionId,path:`${owner}/${sessionId}/${id}.jpg`,base64:await file.base64(),note,...(workout?{workout_kind:workout.kind,share:workout.share}:{})};
  await transaction(async db=>{const rows=await read<Upload[]>("cs:uploads",[],db);if(rows.length>=10)throw new Error("Ten photos are waiting to sync. Connect to the internet before saving another.");await write("cs:uploads",[...rows,upload],db);});
  // Offline the photo stays queued on this phone and uploads later.
  return syncPhotos().catch(error=>{if(error instanceof Error&&error.message==="NETWORK")return false;throw error;});
@@ -19,16 +21,23 @@ export async function queuePhoto(uri:string,sessionId:string,note:string){
 let syncing:Promise<boolean>|undefined;
 export function syncPhotos(){syncing??=work().finally(()=>{syncing=undefined;});return syncing;}
 async function work(){
- const owner=await authenticatedOwner();const rows=await read<Upload[]>("cs:uploads",[]);
+ const owner=await authenticatedOwner();const rows=await read<Upload[]>("cs:uploads",[]);let complete=true;
+ const done=(id:string)=>transaction(async db=>{await write("cs:uploads",(await read<Upload[]>("cs:uploads",[],db)).filter(r=>r.id!==id),db);});
  for(const row of rows.filter(r=>r.owner===owner)){
   try{
    const binary=Uint8Array.from(atob(row.base64),c=>c.charCodeAt(0));
    const {error}=await backend().storage.from("classstreak-photos").upload(row.path,binary.buffer,{contentType:"image/jpeg",upsert:true});if(error)throw error;
-   await call("cs_attach_photo",{session_id:row.session_id,path:row.path,note:row.note||null});
-   await transaction(async db=>{await write("cs:uploads",(await read<Upload[]>("cs:uploads",[],db)).filter(r=>r.id!==row.id),db);});
-  }catch{return false;}
+   if(row.workout_kind){
+    await call("cs_workout",{action:"photo",payload:{id:row.session_id,path:row.path,kind:row.workout_kind,share:row.share!==false,caption:row.note||null}});
+   }else await call("cs_attach_photo",{session_id:row.session_id,path:row.path,note:row.note||null});
+   await done(row.id);
+  }catch(error){
+   // A workout that ended somewhere this photo cannot follow (a location visit
+   // saved under a new id) will never accept it. Keep everything else queued.
+   if(error instanceof Error&&error.message==="FORBIDDEN"&&row.workout_kind)await done(row.id);else complete=false;
+  }
  }
- return true;
+ return complete;
 }
 export async function saveToPhotos(uri:string){
  const permission=await MediaLibrary.requestPermissionsAsync(true);if(!permission.granted)throw new Error("Allow saving photos in iPhone Settings.");

@@ -21,7 +21,7 @@ export function createFriendProfileSession({ownerId,peerId,request,onState,onSna
   }catch(error){if(active&&id===loadId)update({profile:null,loading:false,error});}
  };
  const nudge=async()=>{
-  if(!active||state.sending||state.loading||!state.profile||state.profile.is_demo||state.profile.worked_out_today||state.profile.nudged_today||!state.profile.nudge_available)return;
+  if(!active||state.sending||state.loading||!state.profile||state.profile.is_demo||state.profile.worked_out_today||!state.profile.nudge_available)return;
   // Invalidate a preceding refresh before starting the write.
   ++loadId;
   update({sending:true,error:null,sent:false});
