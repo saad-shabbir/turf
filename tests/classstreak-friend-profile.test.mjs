@@ -11,7 +11,7 @@ test('mutual friends can open safe real profiles and an any-day nudge reaches th
   await rpc(db,'cs_social',['request',{id:b.profile.id}]);await assert.rejects(rpc(db,'cs_friend_profile',[b.profile.id]),/FORBIDDEN/);await assert.rejects(rpc(db,'cs_social',['nudge',{id:b.profile.id}]),/NUDGE_UNAVAILABLE/);
   await actor(db,B);await rpc(db,'cs_social',['accept',{id:a.profile.id}]);await actor(db,A);
   let profile=await rpc(db,'cs_friend_profile',[b.profile.id]);assert.equal(profile.nudge_available,true);assert.equal(profile.worked_out_today,false);assert.equal(profile.weekly_count,0);assert.deepEqual(profile.week_details,[]);
-  assert.equal(Object.keys(profile).sort().join(','),'first_name,id,is_demo,nudge_available,nudged_today,streak,week_details,weekly_count,weekly_goal,worked_out_today');
+  assert.equal(Object.keys(profile).sort().join(','),'avatar_path,first_name,id,is_demo,muted,nudge_available,nudged_today,streak,week_details,weekly_count,weekly_goal,worked_out_today');
   const sent=await rpc(db,'cs_social',['nudge',{id:b.profile.id}]);const peer=sent.friends.find(f=>f.id===b.profile.id);assert.equal(peer.nudged_today,true);assert.equal(peer.nudge_available,false);
   await rpc(db,'cs_social',['nudge',{id:b.profile.id}]);profile=await rpc(db,'cs_friend_profile',[b.profile.id]);assert.equal(profile.nudged_today,true);
   await actor(db,B);const received=await rpc(db,'cs_snapshot');const nudges=received.inbox.filter(i=>i.kind==='nudge');assert.equal(nudges.length,1);assert.match(nudges[0].body,/Alice is cheering you on/);assert.equal(nudges[0].read_at,null);
