@@ -60,6 +60,10 @@ export async function registerWorkoutCategory(){
   {identifier:'stop',buttonTitle:'Stop workout',options:{opensAppToForeground:true}},
   {identifier:'continue',buttonTitle:'I’m still going',options:{opensAppToForeground:true}},
  ]);
+ // Set on friend_started pushes by the send_push Edge Function.
+ await Notifications.setNotificationCategoryAsync('friend-started',[
+  {identifier:'cheer',buttonTitle:'Cheer 🔥',options:{opensAppToForeground:true}},
+ ]);
 }
 // Local, so these work in the current build without remote push.
 async function scheduleWorkoutChecks(c:Candidate){

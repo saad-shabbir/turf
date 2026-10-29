@@ -43,7 +43,7 @@ import {syncWorkoutLiveActivity,clearWorkoutLiveActivity} from './workoutLiveAct
 import {PhotoFlow} from './PhotoFlow';
 import {Conversations,Thread} from './Messages';
 import {syncLiveWorkout,registerWorkoutCategory,cancelWorkoutChecks,creditedEnd,lastActivity,THREE_HOURS} from './live';
-import {registerPush,unregisterPush} from './push';
+import {registerPush,unregisterPush,releasePushToken} from './push';
 import {syncPlan} from './planSync';
 import {chooseAvatar,removeAvatar,clearPhotoCache} from './avatars';
 
@@ -106,7 +106,7 @@ export default function ClassStreakApp() {
     }
     setSignedIn(!!data.session);
     setAuthId(data.session?.user.id??null);
-    if (!data.session) { demoPreview.current=false; setSnapshot(null);try{updateWidget(null);}catch{}await clearWorkoutLiveActivity().catch(()=>{});return; }
+    if (!data.session) { void releasePushToken().catch(()=>{}); demoPreview.current=false; setSnapshot(null);try{updateWidget(null);}catch{}await clearWorkoutLiveActivity().catch(()=>{});return; }
     try { await syncButtonWorkouts().catch(()=>{}); const raw = await getSnapshot();const value=demoPreview.current?raw:liveSnapshot(raw);if(epoch!==authEpoch.current)return;setSnapshot(value); await write("cs:snapshot", { auth: data.session.user.id, value:{...value,friends:[],feed:[],inbox:[],achievements:[],live:[],dm_unread:0} });setClockOffset(await read("cs:clock_offset",0));setTracking(await trackingNotice(value));
       try{updateWidget(value);void write('cs:widget_status','updated '+new Date().toISOString());}catch(e){void write('cs:widget_status','error: '+(e instanceof Error?e.message:String(e)).slice(0,160));}void syncHealth(value).catch(()=>{});
       void syncWorkoutLiveActivity({resume:true}).catch(()=>{});
@@ -114,7 +114,7 @@ export default function ClassStreakApp() {
       void syncPlan(value).catch(()=>{});void registerPush().catch(()=>{});
       const dmSeen=await read<number>('cs:dm_seen',0);const dms=value.dm_unread??0;if(dms>dmSeen)setMessage(dms===1?'You have a new message.':`You have ${dms} unread messages.`);if(dms!==dmSeen)await write('cs:dm_seen',dms);
       const milestone=await announceMilestones(value).catch(()=>null);if(milestone){setPane('milestone:'+milestone);track('milestone',{count:milestone});}
-      const unread=value.inbox.filter(i=>!i.read_at);const previous=await read<string[]>("cs:inbox_seen",[]);const fresh=unread.filter(i=>!previous.includes(i.id));if(fresh.length){const nudge=fresh.find(i=>i.kind==="plan_missed")??fresh.find(i=>i.kind==="nudge")??fresh.find(i=>i.kind==="friend_started"||i.kind==="workout_stopped");setMessage(nudge?.body??`${unread.length} update${unread.length===1?"":"s"} from friends in your inbox.`);await write("cs:inbox_seen",unread.map(i=>i.id));}
+      const unread=value.inbox.filter(i=>!i.read_at);const previous=await read<string[]>("cs:inbox_seen",[]);const fresh=unread.filter(i=>!previous.includes(i.id));if(fresh.length){const nudge=fresh.find(i=>i.kind==="plan_missed")??fresh.find(i=>i.kind==="nudge")??fresh.find(i=>i.kind==="friend_started"||i.kind==="friend_finished"||i.kind==="workout_stopped");setMessage(nudge?.body??`${unread.length} update${unread.length===1?"":"s"} from friends in your inbox.`);await write("cs:inbox_seen",unread.map(i=>i.id));}
     }
     catch (e) {
       if (e instanceof Error && e.message === "SETUP_REQUIRED") return;
@@ -134,7 +134,7 @@ export default function ClassStreakApp() {
     const app = AppState.addEventListener("change", state => { if (state === "active") void foreground().catch(() => {}); });
     onSessionsCreated(async ids=>{await refresh();if(AppState.currentState==="active"&&ids[0])setPane("session:"+ids[0]);});
     void registerWorkoutCategory().catch(()=>{});
-    const notification=notificationResponse((target,extra)=>{if(extra?.action==='stop'&&extra.visit_id)actionRef.current?.('workout_stop',{visit_id:extra.visit_id});else setPane(target);});
+    const notification=notificationResponse((target,extra)=>{if(extra?.action==='stop'&&extra.visit_id)actionRef.current?.('workout_stop',{visit_id:extra.visit_id});else if(extra?.action==='cheer'&&extra.from){setPane(target);actionRef.current?.('cheer',{id:extra.from});}else setPane(target);});
     onPlanningChanged(()=>{const current=snapshotRef.current;if(current)void syncPlan(current,true).catch(()=>{});});
     const handle = async (url: string) => {
       const parsed = new URL(url); const hash = new URLSearchParams(parsed.hash.slice(1)); const code = parsed.searchParams.get("code");
@@ -180,9 +180,10 @@ export default function ClassStreakApp() {
     setSnapshot(value); await write("cs:draft", newDraft());await refresh();
     if(draft.invite_code)await call<Snapshot>("cs_social",{action:"invite",payload:{code:draft.invite_code}}).then(setSnapshot).catch(e=>setMessage(safeMessage(e)));
     if(await read("cs:pending_studio",false)){setPane("studios");await write("cs:pending_studio",false);}
+    await saveSettings('profile',{discoverable:draft.discoverable===true}).then(setSnapshot).catch(()=>{});
     if(draft.location_consent&&value.places.some(p=>p.enabled))await startTracking().catch(()=>setMessage("Your setup is saved. Automatic tracking can be enabled in Account when location is allowed."));
   };
-  const signOut=async()=>{await unregisterPush().catch(()=>{});clearPhotoCache();demoPreview.current=false;authEpoch.current++;try{updateWidget(null);}catch{}await clearWorkoutLiveActivity().catch(()=>{});await stopTracking();await clearNotifications();await backend().auth.signOut({scope:"local"});await purge();setSnapshot(null);setSignedIn(false);setActiveWorkout(null);setAuthId(null);setDraft(newDraft());setPane("home");setMode("signin");};
+  const signOut=async()=>{const unreleased=await unregisterPush().catch(()=>null);clearPhotoCache();demoPreview.current=false;authEpoch.current++;try{updateWidget(null);}catch{}await clearWorkoutLiveActivity().catch(()=>{});await stopTracking();await clearNotifications();await backend().auth.signOut({scope:"local"});await purge();if(unreleased)await write('cs:push_release',unreleased).catch(()=>{});setSnapshot(null);setSignedIn(false);setActiveWorkout(null);setAuthId(null);setDraft(newDraft());setPane("home");setMode("signin");};
   const action:Action=(name,payload={})=>{
     if(name==='friend_snapshot'){const updated=payload.snapshot as Snapshot|undefined;if(updated?.profile?.id)setSnapshotState(current=>current?.profile.id===updated.profile.id?(demoPreview.current?updated:liveSnapshot(updated)):current);return;}
     if(name==="navigate"&&String(payload.pane).startsWith("post")&&!pane.startsWith("post"))setPhotoReturn(pane);
@@ -216,7 +217,9 @@ export default function ClassStreakApp() {
         setSnapshot(demoPreview.current?saved:liveSnapshot(saved));if(wasActive)await startTracking();
         if(kind==='days'||kind==='profile')await scheduleReminders(saved);
         setMessage(kind==="goals"?"Saved for next Monday.":kind==="days"?"Usual days saved.":"Saved.");
-      }else if(name==='avatar'){const source=String(payload.source);const updated=source==='remove'?await removeAvatar(snapshot?.profile.avatar_path):await chooseAvatar(source==='camera'?'camera':'library',snapshot?.profile.avatar_path);if(updated){setSnapshot(updated);setMessage(source==='remove'?'Profile photo removed.':'Profile photo updated.');}}
+      }else if(name==='cheer'){await call('cs_workout',{action:'cheer',payload:{id:String(payload.id)}});void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(()=>{});setMessage('Cheer sent 🔥');await refresh().catch(()=>{});}
+      else if(name==='block'){const target=String(payload.id);const confirmed=await new Promise<boolean>(resolve=>Alert.alert(`Block ${String(payload.name??'this person')}?`,'This removes the friendship. They won’t find you in search or be able to send you requests.',[{text:'Cancel',style:'cancel',onPress:()=>resolve(false)},{text:'Block',style:'destructive',onPress:()=>resolve(true)}],{onDismiss:()=>resolve(false)}));if(!confirmed)return;setSnapshot(await call<Snapshot>('cs_social',{action:'block',payload:{id:target}}));setPane('friends');setMessage('Blocked. You can unblock in Account.');}
+      else if(name==='avatar'){const source=String(payload.source);const updated=source==='remove'?await removeAvatar(snapshot?.profile.avatar_path):await chooseAvatar(source==='camera'?'camera':'library',snapshot?.profile.avatar_path);if(updated){setSnapshot(updated);setMessage(source==='remove'?'Profile photo removed.':'Profile photo updated.');}}
       else if(name==='workout_photo_share'){setSnapshot(await call<Snapshot>('cs_workout',{action:'share',payload}));setMessage(payload.share?'Shared with friends.':'Hidden from your friends’ feeds.');}
       else if(name==='connect_health'){await connectHealth();await refresh();setMessage('Apple Health matching is enabled.');}
       else if(name==='sync_health'&&snapshot){await syncHealth(snapshot,true);await refresh();setMessage('Matching workouts checked.');}

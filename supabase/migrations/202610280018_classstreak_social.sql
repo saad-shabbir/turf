@@ -9,9 +9,26 @@
 -- Rollback: revoke execute on the new public functions from authenticated and
 -- set push_config.enabled=false. No existing rows are changed or deleted.
 
+-- Findability is opt-in: existing people answer a one-time card, new people
+-- choose during sign-up. An exact @handle still finds anyone who set one.
 alter table classstreak.users add column avatar_path text,add column share_plan boolean not null default true,
- add column handle text check(handle is null or handle ~ '^[a-z0-9_.]{3,20}$'),add column discoverable boolean not null default true;
+ add column handle text check(handle is null or handle ~ '^[a-z0-9_.]{3,20}$'),add column discoverable boolean not null default false,
+ add column discoverable_asked boolean not null default false,
+ -- Live workout cards and start alerts for friends, including automatic arrivals.
+ add column share_live boolean not null default true,
+ -- Off by default: when a friend starts a workout, cheer them automatically.
+ add column auto_cheer boolean not null default false;
 create unique index users_handle_key on classstreak.users(handle) where handle is not null;
+
+-- A block ends the friendship, hides both people from each other's search and
+-- rejects new requests between them.
+create table classstreak.blocks(
+ user_id uuid not null references classstreak.users on delete cascade,
+ blocked uuid not null references classstreak.users on delete cascade,
+ created_at timestamptz not null default now(),primary key(user_id,blocked),check(user_id<>blocked));
+create function classstreak.blocked_between(a uuid,b uuid) returns boolean language sql stable security definer set search_path='' as $$
+ select exists(select 1 from classstreak.blocks where (user_id=$1 and blocked=$2) or (user_id=$2 and blocked=$1))
+$$;
 
 -- People can mute push alerts from one friend without unfriending them.
 create table classstreak.mutes(
@@ -53,13 +70,14 @@ create table classstreak.plans(
  activity_key text not null references classstreak.activities,
  planned_time time,period text not null check(period in('morning','midday','evening')),
  primary key(user_id,day,slot));
--- At most one "hasn't started" alert per friend per planned session.
+-- At most one "hasn't started" alert per friend per local day, however the
+-- plan is edited.
 create table classstreak.plan_alerts(
  id uuid primary key default gen_random_uuid(),
  viewer uuid not null references classstreak.users on delete cascade,
  peer uuid not null references classstreak.users on delete cascade,
  day date not null,slot text not null,created_at timestamptz not null default now(),nudged_at timestamptz,
- unique(viewer,peer,day,slot));
+ unique(viewer,peer,day));
 
 -- A workout in progress, reported by the phone so friends can be told and a
 -- forgotten timer can be closed. Timer workouts use their future session id.
@@ -70,6 +88,13 @@ create table classstreak.active_workouts(
  place_id uuid references classstreak.places on delete set null,
  started_at timestamptz not null,started_by text not null check(started_by in('button','photo','arrival')),
  last_activity_at timestamptz not null,announced_at timestamptz,created_at timestamptz not null default now());
+-- One cheer per friend per workout. Workout ids are private; friends cheer a
+-- person, and the server picks their workout in progress.
+create table classstreak.cheers(
+ workout_id uuid not null,
+ from_user uuid not null references classstreak.users on delete cascade,
+ to_user uuid not null references classstreak.users on delete cascade,
+ created_at timestamptz not null default now(),primary key(workout_id,from_user),check(from_user<>to_user));
 create table classstreak.workout_photos(
  path text primary key,
  user_id uuid not null references classstreak.users on delete cascade,
@@ -77,6 +102,8 @@ create table classstreak.workout_photos(
  share_to_feed boolean not null default true,caption text check(length(caption)<=240),created_at timestamptz not null default now(),
  unique(workout_id,kind));
 
+alter table classstreak.blocks enable row level security;
+alter table classstreak.cheers enable row level security;
 alter table classstreak.mutes enable row level security;
 alter table classstreak.push_tokens enable row level security;
 alter table classstreak.push_outbox enable row level security;
@@ -86,7 +113,7 @@ alter table classstreak.plans enable row level security;
 alter table classstreak.plan_alerts enable row level security;
 alter table classstreak.active_workouts enable row level security;
 alter table classstreak.workout_photos enable row level security;
-revoke all on classstreak.mutes,classstreak.push_tokens,classstreak.push_outbox,classstreak.push_config,classstreak.messages,classstreak.plans,classstreak.plan_alerts,classstreak.active_workouts,classstreak.workout_photos from public,anon,authenticated;
+revoke all on classstreak.cheers,classstreak.blocks,classstreak.mutes,classstreak.push_tokens,classstreak.push_outbox,classstreak.push_config,classstreak.messages,classstreak.plans,classstreak.plan_alerts,classstreak.active_workouts,classstreak.workout_photos from public,anon,authenticated;
 
 -- Helpers -------------------------------------------------------------------
 
@@ -116,7 +143,8 @@ create function classstreak.push(recipient uuid,k text,sender uuid,title text,me
 declare r classstreak.users;begin
  if recipient is not distinct from sender then return;end if;
  select * into r from classstreak.users where id=recipient;
- if not found or r.is_demo or r.notification_preferences->>k='false' then return;end if;
+ -- "Finished" alerts follow the same switch as "started".
+ if not found or r.is_demo or r.notification_preferences->>(case when k='friend_finished' then 'friend_started' else k end)='false' then return;end if;
  if sender is not null and exists(select 1 from classstreak.mutes where user_id=recipient and peer=sender) then return;end if;
  -- Nothing to deliver to yet (the current build cannot register for push).
  if not exists(select 1 from classstreak.push_tokens where user_id=recipient) then return;end if;
@@ -130,12 +158,14 @@ alter function classstreak.inform(uuid,text,uuid,uuid,text) rename to inform_bef
 create function classstreak.inform(recipient uuid,k text,sender uuid,sid uuid,message text) returns void language plpgsql security definer set search_path='' as $$
 declare name text;begin
  -- A muted friend's activity alerts are dropped; their nudges still reach the inbox quietly.
- if k in('friend_started','plan_missed') and exists(select 1 from classstreak.mutes where user_id=recipient and peer=sender) then return;end if;
+ if k in('friend_started','friend_finished','plan_missed','cheer') and exists(select 1 from classstreak.mutes where user_id=recipient and peer=sender) then return;end if;
+ if k='friend_finished' and (select notification_preferences->>'friend_started'='false' from classstreak.users where id=recipient) then return;end if;
  perform classstreak.inform_before_social(recipient,k,sender,sid,message);
- if k in('nudge','friend_started','plan_missed','workout_stopped') then
+ -- workout_stopped stays inbox-only: the phone already shows its own notification.
+  if k in('nudge','friend_started','friend_finished','plan_missed','cheer') then
   select first_name into name from classstreak.users where id=sender;
-  perform classstreak.push(recipient,case when k='workout_stopped' then 'workout_check' else k end,sender,coalesce(name,'ClassStreak'),message,
-   jsonb_build_object('pane',case when k in('friend_started','plan_missed') then 'friend:'||sender::text when k='nudge' then 'friends' else 'history' end));
+  perform classstreak.push(recipient,k,sender,coalesce(name,'ClassStreak'),message,
+   jsonb_build_object('pane',case when k in('friend_started','friend_finished','plan_missed') then 'friend:'||sender::text when k='cheer' then 'active-workout' else 'friends' end,'from',sender));
  end if;
 end $$;
 
@@ -153,13 +183,20 @@ declare u uuid:=classstreak.me();begin
  return jsonb_build_object('registered',true);
 end $$;
 
+-- A phone that signed out offline releases its token later, without an account.
+-- Knowing the token is the only permission, and it can only be deleted.
+create function public.cs_push_release(push_token text) returns void language sql security definer set search_path='' as $$
+ delete from classstreak.push_tokens where token=$1
+$$;
+
 -- Service-only: the send_push Edge Function claims due pushes and reports back.
+-- A claim is a 10-minute lease; a failed send waits 2, 4, 8, then 16 minutes.
 create function public.cs_push_claim(max_items integer default 100) returns jsonb language plpgsql security definer set search_path='' as $$
 declare result jsonb;begin
  delete from classstreak.push_outbox where sent_at is null and created_at<now()-interval '1 day';
  delete from classstreak.push_outbox where sent_at<now()-interval '7 days';
  with due as(
-  select id from classstreak.push_outbox where sent_at is null and send_after<=now() and attempts<5 and (claimed_at is null or claimed_at<now()-interval '2 minutes')
+  select id from classstreak.push_outbox where sent_at is null and send_after<=now() and attempts<5 and (claimed_at is null or claimed_at<now()-interval '10 minutes')
   order by id limit least(greatest(coalesce(max_items,100),1),500) for update skip locked
  ),claimed as(
   update classstreak.push_outbox o set claimed_at=now(),attempts=o.attempts+1 from due where o.id=due.id returning o.*
@@ -171,7 +208,7 @@ create function public.cs_push_done(results jsonb) returns void language plpgsql
 declare r jsonb;begin
  for r in select value from jsonb_array_elements(coalesce(results,'[]')) loop
   if (r->>'ok')::boolean then update classstreak.push_outbox set sent_at=now(),error=null where id=(r->>'id')::bigint;
-  else update classstreak.push_outbox set error=left(r->>'error',200),claimed_at=null where id=(r->>'id')::bigint;end if;
+  else update classstreak.push_outbox set error=left(r->>'error',200),claimed_at=null,send_after=now()+interval '1 minute'*power(2,attempts) where id=(r->>'id')::bigint;end if;
   delete from classstreak.push_tokens where token in(select jsonb_array_elements_text(coalesce(r->'invalid_tokens','[]')));
  end loop;
 end $$;
@@ -189,8 +226,10 @@ $$;
 create function public.cs_can_read_social_photo(path text) returns boolean language sql stable security definer set search_path='' as $$
  select auth.uid() is not null and (
   split_part($1,'/',1)=auth.uid()::text
+  -- Friends, or the person receiving a pending request from the photo's owner.
   or exists(select 1 from classstreak.users p where p.avatar_path=$1 and exists(
-    select 1 from classstreak.friendships f where f.user_a=least(p.id,classstreak.me()) and f.user_b=greatest(p.id,classstreak.me())))
+    select 1 from classstreak.friendships f where f.user_a=least(p.id,classstreak.me()) and f.user_b=greatest(p.id,classstreak.me())
+     and (f.status='accepted' or (f.status='pending' and f.requested_by=p.id))))
   or exists(select 1 from classstreak.workout_photos wp join classstreak.users p on p.id=wp.user_id
     where wp.path=$1 and p.auth_id::text=split_part($1,'/',1) and wp.share_to_feed and (
      classstreak.can_see_session(classstreak.me(),wp.workout_id)
@@ -225,7 +264,7 @@ end $$;
 
 alter function classstreak.friend_list(uuid) rename to friend_list_before_social;
 create function classstreak.friend_list(viewer uuid) returns jsonb language sql stable security definer set search_path='' as $$
- select coalesce(jsonb_agg(f||jsonb_build_object('avatar_path',p.avatar_path,'muted',exists(select 1 from classstreak.mutes m where m.user_id=$1 and m.peer=p.id)) order by f->>'first_name'),'[]')
+ select coalesce(jsonb_agg(f||jsonb_build_object('avatar_path',case when f->>'status'='pending' and f->>'requested_by'=$1::text then null else p.avatar_path end,'muted',exists(select 1 from classstreak.mutes m where m.user_id=$1 and m.peer=p.id)) order by f->>'first_name'),'[]')
  from jsonb_array_elements(classstreak.friend_list_before_social($1)) f left join classstreak.users p on p.id=(f->>'id')::uuid
 $$;
 
@@ -259,6 +298,24 @@ declare u uuid:=classstreak.me();target uuid;alert uuid;name text;result jsonb;b
   else delete from classstreak.mutes m where m.user_id=u and m.peer=target;end if;
   perform classstreak.touch_one(u);return public.cs_snapshot();
  end if;
+ if action in('block','unblock') then
+  target:=(payload->>'id')::uuid;
+  if u is null or target is null or target=u or not exists(select 1 from classstreak.users where id=target and not is_demo) then raise exception 'FORBIDDEN';end if;
+  if action='unblock' then delete from classstreak.blocks b where b.user_id=u and b.blocked=target;perform classstreak.touch_one(u);return public.cs_snapshot();end if;
+  perform 1 from classstreak.users where id in(u,target) order by id for update;
+  insert into classstreak.blocks(user_id,blocked) values(u,target) on conflict do nothing;
+  if exists(select 1 from classstreak.friendships where user_a=least(u,target) and user_b=greatest(u,target)) then
+   insert into classstreak.ended_friendships values(least(u,target),greatest(u,target)) on conflict do nothing;
+   delete from classstreak.friendships where user_a=least(u,target) and user_b=greatest(u,target);
+  end if;
+  delete from classstreak.inbox where (user_id=u and from_user=target) or (user_id=target and from_user=u);
+  delete from classstreak.mutes where (user_id=u and peer=target) or (user_id=target and peer=u);
+  delete from classstreak.plan_alerts where (viewer=u and peer=target) or (viewer=target and peer=u);
+  perform classstreak.touch_one(target);perform classstreak.touch_one(u);return public.cs_snapshot();
+ end if;
+ -- Requests between people where either blocked the other are refused, without saying why.
+ if action in('request','accept') and u is not null and classstreak.blocked_between(u,(payload->>'id')::uuid) then raise exception 'INVITE_INVALID';end if;
+ if action='invite' and u is not null and exists(select 1 from classstreak.users p where p.invite_code=upper(trim(payload->>'code')) and classstreak.blocked_between(u,p.id)) then raise exception 'INVITE_INVALID';end if;
  if action<>'nudge' then return public.cs_social_before_social(action,payload);end if;
  target:=(payload->>'id')::uuid;
  if u is not null and target is not null and target<>u then
@@ -289,7 +346,9 @@ declare u uuid:=classstreak.me();h text;begin
   update classstreak.users set share_plan=(payload->>'share_plan')::boolean where id=u;
   if not (payload->>'share_plan')::boolean then delete from classstreak.plan_alerts where peer=u and nudged_at is null;end if;
  end if;
- if kind='profile' and payload ? 'discoverable' then update classstreak.users set discoverable=(payload->>'discoverable')::boolean where id=u;end if;
+ if kind='profile' and payload ? 'discoverable' then update classstreak.users set discoverable=(payload->>'discoverable')::boolean,discoverable_asked=true where id=u;end if;
+ if kind='profile' and payload ? 'share_live' then update classstreak.users set share_live=(payload->>'share_live')::boolean where id=u;end if;
+ if kind='profile' and payload ? 'auto_cheer' then update classstreak.users set auto_cheer=(payload->>'auto_cheer')::boolean where id=u;end if;
  if kind='profile' and payload ? 'handle' then
   h:=nullif(lower(btrim(ltrim(btrim(coalesce(payload->>'handle','')),'@'))),'');
   if h is not null and h !~ '^[a-z0-9_.]{3,20}$' then raise exception 'HANDLE_INVALID';end if;
@@ -297,12 +356,14 @@ declare u uuid:=classstreak.me();h text;begin
   perform classstreak.throttle(u,'handle',20);
   update classstreak.users set handle=h where id=u;
  end if;
- return public.cs_settings_before_social(kind,payload-'share_plan'-'discoverable'-'handle');
+ return public.cs_settings_before_social(kind,payload-'share_plan'-'discoverable'-'handle'-'share_live'-'auto_cheer');
 end $$;
 
 -- People search -------------------------------------------------------------------
 -- Live name or @handle search for adding friends. Returns first name, last
--- initial and handle only; people can turn discoverability off in Account.
+-- initial and handle only. First names and handles match by prefix; a last
+-- name only as an exact whole word, so it cannot be guessed letter by letter.
+-- People who are not discoverable are found only by their exact @handle.
 create function public.cs_people_search(query text) returns jsonb language plpgsql security definer set search_path='' as $$
 declare u uuid:=classstreak.me();q text;pattern text;begin
  if u is null then raise exception 'SETUP_REQUIRED';end if;
@@ -315,8 +376,10 @@ declare u uuid:=classstreak.me();q text;pattern text;begin
    'rank',case when p.handle=q then '0' when p.handle like pattern then '1' else '2' end,
    'status',case when f.status='accepted' then 'friends' when f.status='pending' and f.requested_by=u then 'requested' when f.status='pending' then 'incoming' else 'none' end) x
   from classstreak.users p left join classstreak.friendships f on f.user_a=least(u,p.id) and f.user_b=greatest(u,p.id)
-  where p.id<>u and not p.is_demo and p.auth_id is not null and (p.discoverable or f.user_a is not null)
-   and (p.handle like pattern or lower(p.first_name) like pattern or lower(coalesce(p.last_name,'')) like pattern or lower(p.first_name||' '||coalesce(p.last_name,'')) like pattern)
+  where p.id<>u and not p.is_demo and p.auth_id is not null and not classstreak.blocked_between(u,p.id)
+   and (p.discoverable or f.user_a is not null or p.handle=q)
+   and (p.handle like pattern or lower(p.first_name) like pattern
+    or (nullif(btrim(p.last_name),'') is not null and (q=lower(btrim(p.last_name)) or q=lower(btrim(p.first_name))||' '||lower(btrim(p.last_name)))))
   order by case when p.handle=q then 0 when p.handle like pattern then 1 else 2 end,p.first_name,p.id limit 20) q2),'[]');
 end $$;
 
@@ -359,7 +422,8 @@ declare u uuid:=classstreak.me();peer uuid;msg text;name text;cid uuid;begin
    insert into classstreak.messages(sender,recipient,client_id,body) values(u,peer,cid,msg);
    select first_name into name from classstreak.users where id=u;
    perform classstreak.touch_one(peer);
-   perform classstreak.push(peer,'dm',u,name,msg,jsonb_build_object('pane','dm:'||u::text));
+   -- The lock screen shows who wrote, not what they wrote.
+   perform classstreak.push(peer,'dm',u,'ClassStreak','New message from '||name,jsonb_build_object('pane','dm:'||u::text));
   end if;
   return classstreak.thread(u,peer);
  end if;
@@ -368,26 +432,36 @@ end $$;
 
 -- Weekly plans -----------------------------------------------------------------
 
+create function classstreak.plan_time(planned time,period text) returns time language sql immutable as $$
+ select coalesce($1,case $2 when 'morning' then time '09:00' when 'midday' then time '13:00' else time '18:00' end)
+$$;
+
 create function public.cs_plan_sync(items jsonb) returns jsonb language plpgsql security definer set search_path='' as $$
-declare u uuid:=classstreak.me();z text;monday date;today date;lower_day date;upper_day date;item jsonb;d date;k text;t time;n integer:=0;begin
+declare u uuid:=classstreak.me();z text;monday date;today date;now_local time;lower_day date;upper_day date;item jsonb;d date;k text;t time;n integer:=0;begin
  if u is null then raise exception 'SETUP_REQUIRED';end if;
  select tz into z from classstreak.users where id=u and not is_demo for update;
  if not found then raise exception 'SETUP_REQUIRED';end if;
  if jsonb_typeof(items) is distinct from 'array' or jsonb_array_length(items)>120 then raise exception 'INVALID_PLAN';end if;
  perform classstreak.throttle(u,'plan',300);
- monday:=classstreak.monday(now(),z);today:=(now() at time zone z)::date;
+ monday:=classstreak.monday(now(),z);today:=(now() at time zone z)::date;now_local:=(now() at time zone z)::time;
  lower_day:=monday-7;upper_day:=monday+13;
  -- After the first sync, earlier days are a record: only today onward changes.
  if exists(select 1 from classstreak.plans where user_id=u) then lower_day:=today;end if;
- delete from classstreak.plans where user_id=u and day between lower_day and upper_day;
+ -- Today's sessions whose time has passed stay as recorded, and new ones for an
+ -- already-passed time are ignored, so a plan cannot be backdated into alerts.
+ delete from classstreak.plans pl where pl.user_id=u and pl.day between lower_day and upper_day
+  and not (lower_day=today and pl.day=today and classstreak.plan_time(pl.planned_time,pl.period)<=now_local);
  for item in select value from jsonb_array_elements(items) loop
   d:=(item->>'day')::date;
   continue when d is null or d<lower_day or d>upper_day;
   k:=item->>'activity_key';perform classstreak.register_activity(k);
   t:=case when item->>'time' ~ '^([01][0-9]|2[0-3]):[0-5][0-9]$' then (item->>'time')::time end;
   if coalesce(item->>'period','') not in('morning','midday','evening') or length(coalesce(item->>'slot',''))not between 1 and 120 then raise exception 'INVALID_PLAN';end if;
+  continue when lower_day=today and d=today and classstreak.plan_time(t,item->>'period')<=now_local;
+  -- At most three planned sessions a day.
+  continue when (select count(*) from classstreak.plans pl where pl.user_id=u and pl.day=d)>=3;
   insert into classstreak.plans(user_id,day,slot,activity_key,planned_time,period) values(u,d,item->>'slot',k,t,item->>'period') on conflict do nothing;
-  n:=n+1;
+  if found then n:=n+1;end if;
  end loop;
  perform classstreak.touch(u);
  return jsonb_build_object('saved',n,'from',lower_day,'to',upper_day);
@@ -433,6 +507,8 @@ declare u uuid:=classstreak.me();w classstreak.active_workouts;wid uuid;starts t
   if wid is null or starts is null or starts>now()+interval '2 minutes' or starts<now()-interval '4 hours' or by_kind not in('button','photo','arrival') then raise exception 'INVALID_WORKOUT';end if;
   if place is not null and not exists(select 1 from classstreak.places where id=place and user_id=u) then place:=null;end if;
   perform classstreak.register_activity(k);
+  -- Ids belong to one person: another person's workout or session is off limits.
+  if exists(select 1 from classstreak.active_workouts where id=wid and user_id<>u) or exists(select 1 from classstreak.sessions where id=wid and user_id<>u) then raise exception 'FORBIDDEN';end if;
   -- A finished timer already has a session with this id.
   if exists(select 1 from classstreak.sessions where id=wid) then return jsonb_build_object('active',false);end if;
   perform classstreak.throttle(u,'workout',60);
@@ -441,20 +517,31 @@ declare u uuid:=classstreak.me();w classstreak.active_workouts;wid uuid;starts t
    update classstreak.active_workouts set activity_key=k,started_by=case when by_kind='photo' then 'photo' else started_by end where id=wid;
   else
    delete from classstreak.active_workouts where user_id=u;
-   insert into classstreak.active_workouts(id,user_id,activity_key,place_id,started_at,started_by,last_activity_at) values(wid,u,k,place,least(starts,now()),by_kind,now());
+   -- Credit runs from the reported start, not from when it reached the server;
+   -- only pings move last activity forward.
+   insert into classstreak.active_workouts(id,user_id,activity_key,place_id,started_at,started_by,last_activity_at)
+   values(wid,u,k,place,least(starts,now()),by_kind,least(starts,now()));
   end if;
   select * into w from classstreak.active_workouts where id=wid;
-  -- Friends hear about a fresh start once. A start synced late is not "just now".
-  if w.announced_at is null and w.started_at>now()-interval '30 minutes' then
+  -- Friends hear once per workout (manual, photo or arrival) when the person
+  -- shares live workouts. Re-sending the same id never re-announces, and a
+  -- start synced more than 30 minutes late is not "just now".
+  if w.announced_at is null and w.started_at>now()-interval '30 minutes' and exists(select 1 from classstreak.users where id=u and share_live) then
    update classstreak.active_workouts set announced_at=now() where id=wid;
    select first_name into name from classstreak.users where id=u;
    for f in select case when fr.user_a=u then fr.user_b else fr.user_a end from classstreak.friendships fr join classstreak.users p on p.id=case when fr.user_a=u then fr.user_b else fr.user_a end
     where u in(fr.user_a,fr.user_b) and fr.status='accepted' and not p.is_demo loop
     perform classstreak.inform(f,'friend_started',u,null,name||' just started '||classstreak.activity_phrase(k)||'. Cheer them on?');
+    -- Friends who turned on auto-cheer cheer right away (still once per workout).
+    if exists(select 1 from classstreak.users where id=f and auto_cheer) then perform classstreak.cheer(f,u);end if;
    end loop;
   end if;
   perform classstreak.touch(u);
-  return jsonb_build_object('active',true,'id',wid,'announced',w.announced_at is null and w.started_at>now()-interval '30 minutes');
+  return jsonb_build_object('active',true,'id',wid);
+ elsif action='cheer' then
+  -- payload.id is the friend's user id: workout ids stay private.
+  perform classstreak.throttle(u,'cheer',300);
+  return jsonb_build_object('cheered',classstreak.cheer(u,(payload->>'id')::uuid));
  elsif action='ping' then
   update classstreak.active_workouts set last_activity_at=greatest(last_activity_at,least(now(),coalesce((payload->>'at')::timestamptz,now()))) where id=wid and user_id=u;
   return jsonb_build_object('active',found);
@@ -503,30 +590,76 @@ end $$;
 
 -- When a timer's session is saved (by the phone or above), its live card ends.
 create function classstreak.session_closes_live() returns trigger language plpgsql security definer set search_path='' as $$
-begin delete from classstreak.active_workouts where id=new.id;return new;end $$;
+begin delete from classstreak.active_workouts where id=new.id and user_id=new.user_id;return new;end $$;
 create trigger cs_session_closes_live after insert on classstreak.sessions for each row execute function classstreak.session_closes_live();
 
--- Live list for the feed: accepted friends who are working out right now.
+-- Friends hear when someone finishes a real workout, however it ended (stop
+-- button, 3-hour auto-stop or leaving the gym): only with "Share live workouts"
+-- on and only for sessions ending now, not ones logged more than 30 minutes
+-- late. A session is inserted once, so each workout is told once.
+create function classstreak.session_announces_finish() returns trigger language plpgsql security definer set search_path='' as $$
+declare p classstreak.users;f uuid;msg text;begin
+ if new.source not in('geofence','manual') or new.removed_at is not null or new.ended_at<now()-interval '30 minutes' or new.ended_at>now()+interval '2 minutes' then return new;end if;
+ select * into p from classstreak.users where id=new.user_id;
+ if not found or p.is_demo or not p.share_live then return new;end if;
+ begin
+  msg:=p.first_name||' just finished '||floor(new.duration_sec/60)::integer||' min of '||case when new.activity_key='gym' then 'gym' else classstreak.activity_phrase(new.activity_key) end||'. Nice work?';
+  for f in select case when fr.user_a=p.id then fr.user_b else fr.user_a end from classstreak.friendships fr join classstreak.users q on q.id=case when fr.user_a=p.id then fr.user_b else fr.user_a end
+   where p.id in(fr.user_a,fr.user_b) and fr.status='accepted' and not q.is_demo loop
+   perform classstreak.inform(f,'friend_finished',p.id,new.id,msg);
+  end loop;
+ -- An alert must never stop a workout from saving.
+ exception when others then raise warning 'friend_finished skipped: %',sqlerrm;end;
+ return new;
+end $$;
+create trigger cs_session_announces_finish after insert on classstreak.sessions for each row execute function classstreak.session_announces_finish();
+
+-- A cheer goes to an accepted friend's live workout, once per friend per workout.
+-- Returns whether a new cheer was recorded. Mutes and quiet hours apply to its
+-- notification through inform and push.
+create function classstreak.cheer(sender uuid,target uuid) returns boolean language plpgsql security definer set search_path='' as $$
+declare w classstreak.active_workouts;name text;begin
+ if sender is null or target is null or sender=target or not classstreak.friends(sender,target) then raise exception 'FORBIDDEN';end if;
+ select aw.* into w from classstreak.active_workouts aw join classstreak.users p on p.id=aw.user_id
+  where aw.user_id=target and aw.started_at>now()-interval '4 hours' and p.share_live and not p.is_demo;
+ if not found then raise exception 'NOT_WORKING_OUT';end if;
+ insert into classstreak.cheers(workout_id,from_user,to_user) values(w.id,sender,target) on conflict do nothing;
+ if not found then return false;end if;
+ select first_name into name from classstreak.users where id=sender;
+ perform classstreak.inform(target,'cheer',sender,null,name||' cheered you on 🔥');
+ perform classstreak.touch_one(target);perform classstreak.touch_one(sender);
+ return true;
+end $$;
+
+-- Live list for the feed: accepted friends who are working out now (any start)
+-- and share live workouts. Keyed by person with rough elapsed minutes; the
+-- workout id and exact start stay with the owner.
 create function classstreak.live_workouts(viewer uuid) returns jsonb language sql stable security definer set search_path='' as $$
- select coalesce(jsonb_agg(jsonb_build_object('id',w.id,'user_id',p.id,'first_name',p.first_name,'avatar_path',p.avatar_path,
-  'activity_key',w.activity_key,'workout_label',a.label,'started_at',w.started_at,
+ select coalesce(jsonb_agg(jsonb_build_object('user_id',p.id,'first_name',p.first_name,'avatar_path',p.avatar_path,
+  'activity_key',w.activity_key,'workout_label',a.label,
+  'started_minutes_ago',(greatest(5,round(extract(epoch from now()-w.started_at)/300)*5))::integer,
+  'cheered',exists(select 1 from classstreak.cheers c where c.workout_id=w.id and c.from_user=$1),
   'photo',(select wp.path from classstreak.workout_photos wp where wp.workout_id=w.id and wp.kind='pre' and wp.share_to_feed)) order by w.started_at desc),'[]')
  from classstreak.active_workouts w join classstreak.users p on p.id=w.user_id join classstreak.activities a on a.key=w.activity_key
- where w.started_at>now()-interval '4 hours' and p.id<>$1 and not p.is_demo and classstreak.friends($1,p.id)
+ where w.started_at>now()-interval '4 hours' and p.share_live and p.id<>$1 and not p.is_demo and classstreak.friends($1,p.id)
 $$;
 
 -- Scheduled checks (every 5 minutes, see supabase/schedule-classstreak-social.sql)
 create function classstreak.social_checks() returns void language plpgsql security definer set search_path='' as $$
 declare r record;w classstreak.active_workouts;starts timestamptz;f uuid;msg text;begin
+ -- Each workout and each plan is handled on its own, so one bad row cannot
+ -- stop every other check.
  for w in select * from classstreak.active_workouts where started_by in('button','photo') and started_at<=now()-interval '3 hours' loop
-  perform classstreak.close_forgotten_workout(w);
+  begin perform classstreak.close_forgotten_workout(w);
+  exception when others then raise warning 'social_checks: workout % skipped: %',w.id,sqlerrm;end;
  end loop;
  -- Arrival workouts close through location tracking; drop stale reports.
  delete from classstreak.active_workouts where started_by='arrival' and started_at<=now()-interval '4 hours';
  for r in select p.user_id,p.day,p.slot,p.activity_key,u.tz,u.first_name,
-   coalesce(p.planned_time,case p.period when 'morning' then time '09:00' when 'midday' then time '13:00' else time '18:00' end) planned_at
+   classstreak.plan_time(p.planned_time,p.period) planned_at
   from classstreak.plans p join classstreak.users u on u.id=p.user_id
-  where not u.is_demo and u.share_plan and p.day between current_date-1 and current_date+1 loop
+  where not u.is_demo and u.share_plan and p.day between current_date-1 and current_date+1 order by p.user_id,p.day,planned_at loop
+  begin
   starts:=(r.day+r.planned_at) at time zone r.tz;
   continue when now()<starts+interval '1 hour' or now()>starts+interval '3 hours';
   continue when exists(select 1 from classstreak.active_workouts x where x.user_id=r.user_id)
@@ -535,12 +668,14 @@ declare r record;w classstreak.active_workouts;starts timestamptz;f uuid;msg tex
   msg:=r.first_name||' was planning '||classstreak.activity_phrase(r.activity_key)||' at '||to_char(r.planned_at,'FMHH12:MI AM')||' and hasn’t started. Nudge them?';
   for f in select case when fr.user_a=r.user_id then fr.user_b else fr.user_a end from classstreak.friendships fr join classstreak.users p on p.id=case when fr.user_a=r.user_id then fr.user_b else fr.user_a end
    where r.user_id in(fr.user_a,fr.user_b) and fr.status='accepted' and not p.is_demo and p.notification_preferences->>'plan_missed' is distinct from 'false'
-    and not exists(select 1 from classstreak.mutes m where m.user_id=p.id and m.peer=r.user_id) loop
+    and not exists(select 1 from classstreak.mutes m where m.user_id=p.id and m.peer=r.user_id) and not classstreak.blocked_between(p.id,r.user_id) loop
    insert into classstreak.plan_alerts(viewer,peer,day,slot) values(f,r.user_id,r.day,r.slot) on conflict do nothing;
    if found then perform classstreak.inform(f,'plan_missed',r.user_id,null,msg);end if;
   end loop;
+  exception when others then raise warning 'social_checks: plan for % skipped: %',r.user_id,sqlerrm;end;
  end loop;
  delete from classstreak.plan_alerts where day<current_date-14;
+ delete from classstreak.cheers where created_at<now()-interval '30 days';
  perform classstreak.dispatch_push();
 end $$;
 
@@ -557,16 +692,49 @@ declare u uuid:=classstreak.me();result jsonb;begin
     from classstreak.workout_photos wp where wp.workout_id=(f->>'id')::uuid and wp.user_id=(f->>'user_id')::uuid and (wp.share_to_feed or wp.user_id=u)),'[]')) order by x.n)
    from jsonb_array_elements(result->'feed') with ordinality x(f,n) left join classstreak.users p on p.id=(x.f->>'user_id')::uuid),'[]'),
   'live',classstreak.live_workouts(u),
-  'active_workout',(select jsonb_build_object('id',w.id,'activity_key',w.activity_key,'started_at',w.started_at,'started_by',w.started_by) from classstreak.active_workouts w where w.user_id=u),
-  'dm_unread',(select count(*) from classstreak.messages m where m.recipient=u and m.read_at is null and classstreak.friends(u,m.sender)));
+  'active_workout',(select jsonb_build_object('id',w.id,'activity_key',w.activity_key,'started_at',w.started_at,'started_by',w.started_by,
+   'cheers',(select count(*) from classstreak.cheers c where c.workout_id=w.id and c.to_user=u)) from classstreak.active_workouts w where w.user_id=u),
+  'dm_unread',(select count(*) from classstreak.messages m where m.recipient=u and m.read_at is null and classstreak.friends(u,m.sender)),
+  'blocked',coalesce((select jsonb_agg(jsonb_build_object('id',p.id,'first_name',p.first_name) order by p.first_name) from classstreak.blocks b join classstreak.users p on p.id=b.blocked where b.user_id=u),'[]'));
+end $$;
+
+-- Session ids belong to one person: a timer id another person is still using
+-- cannot be saved as yours. Same as 202610010017 plus that check.
+create or replace function public.cs_timed_session(payload jsonb) returns jsonb
+language plpgsql security definer set search_path='' as $$
+declare u uuid:=classstreak.me(); sid uuid; starts timestamptz; ends timestamptz; seconds integer; k text; label text; z text; p uuid; existing classstreak.sessions;
+begin
+ if u is null or (payload->>'auth_owner')::uuid is distinct from auth.uid() then raise exception 'AUTH_REQUIRED';end if;
+ select tz into z from classstreak.users where id=u and not is_demo for update;
+ if not found then raise exception 'SETUP_REQUIRED';end if;
+ sid:=(payload->>'id')::uuid;if sid is null then raise exception 'INVALID_SESSION';end if;
+ if exists(select 1 from classstreak.active_workouts where id=sid and user_id<>u) then raise exception 'FORBIDDEN';end if;
+ select * into existing from classstreak.sessions where id=sid;
+ if found then
+  if existing.user_id<>u or existing.event_key is distinct from ('button:'||sid::text) then raise exception 'FORBIDDEN';end if;
+  return public.cs_snapshot();
+ end if;
+ starts:=(payload->>'started_at')::timestamptz;ends:=(payload->>'ended_at')::timestamptz;
+ seconds:=floor(extract(epoch from ends-starts))::integer;
+ if starts is null or ends is null or starts>now() or starts<now()-interval '90 days' or ends>now() or seconds not between 60 and 14400 then raise exception 'INVALID_SESSION';end if;
+ p:=(payload->>'place_id')::uuid;
+ if p is not null and not exists(select 1 from classstreak.places where id=p and user_id=u) then raise exception 'FORBIDDEN';end if;
+ k:=payload->>'activity_key';perform classstreak.register_activity(k);
+ select a.label into label from classstreak.activities a where a.key=k;if label is null then raise exception 'INVALID_ACTIVITY';end if;
+ perform classstreak.ensure_week(u,starts);
+ insert into classstreak.sessions(id,user_id,place_id,venue_id,activity_key,workout_label,started_at,ended_at,duration_sec,source,verified,week_key,day_key,event_key)
+ values(sid,u,p,null,k,label,starts,ends,seconds,'manual',false,classstreak.monday(starts,z),(starts at time zone z)::date,'button:'||sid::text);
+ perform classstreak.recount(u);return public.cs_snapshot();
 end $$;
 
 revoke all on all functions in schema classstreak from public,anon,authenticated;
-revoke all on function public.cs_people_search(text),public.cs_push_token(text,boolean),public.cs_set_avatar(text),public.cs_messages(text,jsonb),public.cs_plan_sync(jsonb),public.cs_profile_plan(uuid),public.cs_workout(text,jsonb),
+revoke all on function public.cs_timed_session(jsonb),public.cs_people_search(text),public.cs_push_token(text,boolean),public.cs_set_avatar(text),public.cs_messages(text,jsonb),public.cs_plan_sync(jsonb),public.cs_profile_plan(uuid),public.cs_workout(text,jsonb),
  public.cs_friend_profile(uuid),public.cs_social(text,jsonb),public.cs_settings(text,jsonb),public.cs_snapshot(),public.cs_can_read_social_photo(text),public.cs_can_write_social_photo(text) from public,anon;
 revoke all on function public.cs_friend_profile_before_social(uuid),public.cs_social_before_social(text,jsonb),public.cs_settings_before_social(text,jsonb) from public,anon,authenticated;
-grant execute on function public.cs_people_search(text),public.cs_push_token(text,boolean),public.cs_set_avatar(text),public.cs_messages(text,jsonb),public.cs_plan_sync(jsonb),public.cs_profile_plan(uuid),public.cs_workout(text,jsonb),
+grant execute on function public.cs_timed_session(jsonb),public.cs_people_search(text),public.cs_push_token(text,boolean),public.cs_set_avatar(text),public.cs_messages(text,jsonb),public.cs_plan_sync(jsonb),public.cs_profile_plan(uuid),public.cs_workout(text,jsonb),
  public.cs_friend_profile(uuid),public.cs_social(text,jsonb),public.cs_settings(text,jsonb),public.cs_snapshot(),public.cs_can_read_social_photo(text),public.cs_can_write_social_photo(text) to authenticated;
 revoke all on function public.cs_push_claim(integer),public.cs_push_done(jsonb) from public,anon,authenticated;
 do $$begin if exists(select 1 from pg_roles where rolname='service_role') then
  grant execute on function public.cs_push_claim(integer),public.cs_push_done(jsonb) to service_role;end if;end $$;
+revoke all on function public.cs_push_release(text) from public;
+grant execute on function public.cs_push_release(text) to anon,authenticated;

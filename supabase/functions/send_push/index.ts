@@ -15,7 +15,7 @@ Deno.serve(async(request:Request)=>{
   const results:{id:number;ok:boolean;error?:string;invalid_tokens:string[]}[]=[];
   for(const item of claimed){
    if(!item.tokens.length){results.push({id:item.id,ok:true,invalid_tokens:[]});continue;}
-   const messages=item.tokens.map(to=>({to,title:item.title,body:item.body,data:item.data,sound:'default',...(item.data.kind==='workout_check'?{categoryId:'workout-check'}:{})}));
+   const messages=item.tokens.map(to=>({to,title:item.title,body:item.body,data:item.data,sound:'default',...(item.data.kind==='friend_started'?{categoryId:'friend-started'}:item.data.kind==='workout_check'?{categoryId:'workout-check'}:{})}));
    try{
     const response=await fetch('https://exp.host/--/api/v2/push/send',{method:'POST',headers:{'Content-Type':'application/json',accept:'application/json'},body:JSON.stringify(messages)});
     const json=await response.json().catch(()=>({})) as {data?:Ticket[];errors?:{message:string}[]};

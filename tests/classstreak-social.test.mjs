@@ -56,7 +56,7 @@ test('push is queued only for registered phones, honours type settings, mutes an
   await rpc(db,'cs_push_token',[token(1),true]);
   await actor(db,A);await send('See you there');
   await asAdmin(db);let rows=(await db.query('select * from classstreak.push_outbox')).rows;
-  assert.equal(rows.length,1);assert.equal(rows[0].title,'Alice');assert.equal(rows[0].body,'See you there');assert.equal(rows[0].data.pane,`dm:${a.profile.id}`);assert.equal(rows[0].data.kind,'dm');
+  assert.equal(rows.length,1);assert.equal(rows[0].title,'ClassStreak');assert.equal(rows[0].body,'New message from Alice');assert.equal(rows[0].data.pane,`dm:${a.profile.id}`);assert.equal(rows[0].data.kind,'dm');
   assert.ok(Date.parse(rows[0].send_after)<=Date.now()+1000);
   // Per-type setting and per-friend mute.
   await actor(db,B);await rpc(db,'cs_settings',['profile',{notification_preferences:{dm:false}}]);
@@ -107,8 +107,10 @@ test('profile photos upload under your own avatar folder and are visible to frie
   const snap=await rpc(db,'cs_set_avatar',[path]);assert.equal(snap.profile.avatar_path,path);
   const visible=async who=>{await actor(db,who);return (await db.query('select name from storage.objects where name=$1',[path])).rows.length;};
   assert.equal(await visible(B),0);assert.equal(await visible(C),0);
-  await actor(db,B);await rpc(db,'cs_social',['request',{id:a.profile.id}]);assert.equal(await visible(B),1);
-  await actor(db,A);let friends=(await rpc(db,'cs_snapshot')).friends;assert.equal(friends[0].avatar_path,null);
+  // Sending a request does not reveal the other person's photo.
+  await actor(db,B);let friends=(await rpc(db,'cs_social',['request',{id:a.profile.id}])).friends;assert.equal(await visible(B),0);
+  assert.equal(friends.find(f=>f.id===a.profile.id).avatar_path,null);
+  await actor(db,A);
   await rpc(db,'cs_social',['accept',{id:b.profile.id}]);
   await actor(db,B);friends=(await rpc(db,'cs_snapshot')).friends;assert.equal(friends.find(f=>f.id===a.profile.id).avatar_path,path);
   assert.equal((await rpc(db,'cs_friend_profile',[a.profile.id])).avatar_path,path);
@@ -194,11 +196,13 @@ test('starting a workout tells friends once, shows them a live card and shared p
   await actor(db,C);await rpc(db,'cs_social',['mute',{id:a.profile.id}]);
   await actor(db,A);const id=randomUUID();const started=new Date(Date.now()-60000).toISOString();
   await assert.rejects(rpc(db,'cs_workout',['start',{id,activity_key:'gym',started_at:new Date(Date.now()-5*3600000).toISOString()}]),/INVALID_WORKOUT/);
-  const first=await rpc(db,'cs_workout',['start',{id,activity_key:'gym',started_at:started,started_by:'photo'}]);assert.equal(first.announced,true);
+  await rpc(db,'cs_workout',['start',{id,activity_key:'gym',started_at:started,started_by:'photo'}]);
   await rpc(db,'cs_workout',['start',{id,activity_key:'gym',started_at:started,started_by:'photo'}]);
   await actor(db,B);let snap=await rpc(db,'cs_snapshot');
   assert.equal(snap.inbox.filter(i=>i.kind==='friend_started').length,1);assert.equal(snap.inbox.find(i=>i.kind==='friend_started').body,'Alice just started the gym. Cheer them on?');
-  assert.equal(snap.live.length,1);assert.equal(snap.live[0].id,id);assert.equal(snap.live[0].photo,null);
+  assert.equal(snap.live.length,1);assert.equal(snap.live[0].user_id,a.profile.id);assert.equal(snap.live[0].photo,null);
+  // Friends get rough elapsed minutes, never the workout id or exact start.
+  assert.equal(snap.live[0].id,undefined);assert.equal(snap.live[0].started_at,undefined);assert.equal(snap.live[0].started_minutes_ago,5);
   await actor(db,C);snap=await rpc(db,'cs_snapshot');assert.equal(snap.inbox.filter(i=>i.kind==='friend_started').length,0);assert.equal(snap.live.length,1);
   // Pre-workout photo: only into your own active workout folder, attached after upload.
   await actor(db,A);const pre=`${A}/${id}/${randomUUID()}.jpg`;
@@ -237,7 +241,7 @@ test('a timer last used after the 2-hour mark is credited to that moment, and a 
   await asAdmin(db);await db.query(`update classstreak.active_workouts set started_at=now()-interval '190 minutes',last_activity_at=now()-interval '40 minutes' where id=$1`,[id]);
   await db.query('select classstreak.social_checks()');
   assert.equal((await db.query('select duration_sec from classstreak.sessions where id=$1',[id])).rows[0].duration_sec,150*60);
-  await actor(db,A);const second=randomUUID();await rpc(db,'cs_workout',['start',{id:second,activity_key:'yoga',started_at:new Date().toISOString(),started_by:'arrival'}]);
+  await actor(db,A);const second=randomUUID();await rpc(db,'cs_workout',['start',{id:second,activity_key:'yoga',started_at:new Date().toISOString(),started_by:'photo'}]);
   await actor(db,B);assert.equal((await rpc(db,'cs_snapshot')).live[0].workout_label,'Yoga');
   await actor(db,A);await rpc(db,'cs_workout',['stop',{id:second}]);
   await actor(db,B);assert.equal((await rpc(db,'cs_snapshot')).live.length,0);
@@ -251,6 +255,7 @@ test('a timer last used after the 2-hour mark is credited to that moment, and a 
 test('people search finds discoverable people by name or @handle with their friend status',async()=>{
  const db=await fresh();try{
   await setup(db,A,'Alice');const b={...await setup(db,B,'Samira'),auth:B},c={...await setup(db,C,'Sam'),auth:C};
+  for(const who of [A,B,C]){await actor(db,who);const snap=await rpc(db,'cs_settings',['profile',{discoverable:true}]);assert.equal(snap.profile.discoverable_asked,true);}
   await actor(db,B);await assert.rejects(rpc(db,'cs_settings',['profile',{handle:'No Spaces'}]),/HANDLE_INVALID/);
   let snap=await rpc(db,'cs_settings',['profile',{handle:'@Sam_Lifts'}]);assert.equal(snap.profile.handle,'sam_lifts');
   await actor(db,C);await assert.rejects(rpc(db,'cs_settings',['profile',{handle:'sam_lifts'}]),/HANDLE_TAKEN/);
@@ -266,6 +271,9 @@ test('people search finds discoverable people by name or @handle with their frie
   // Turning discoverability off hides you from strangers, not from existing friends or requests.
   await actor(db,B);await rpc(db,'cs_settings',['profile',{discoverable:false}]);
   await actor(db,A);assert.deepEqual((await rpc(db,'cs_people_search',['sam'])).map(p=>p.first_name),['Sam']);
+  // An exact @handle still finds someone who is not discoverable.
+  assert.deepEqual((await rpc(db,'cs_people_search',['@sam_lifts'])).map(p=>p.id),[b.profile.id]);
+  assert.deepEqual(await rpc(db,'cs_people_search',['@sam_lift']),[]);
   await actor(db,null);await assert.rejects(rpc(db,'cs_people_search',['sam']),/permission denied/);
  }finally{await db.close();}
 });
