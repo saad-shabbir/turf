@@ -56,7 +56,7 @@ test('push is queued only for registered phones, honours type settings, mutes an
   await rpc(db,'cs_push_token',[token(1),true]);
   await actor(db,A);await send('See you there');
   await asAdmin(db);let rows=(await db.query('select * from classstreak.push_outbox')).rows;
-  assert.equal(rows.length,1);assert.equal(rows[0].title,'ClassStreak');assert.equal(rows[0].body,'New message from Alice');assert.equal(rows[0].data.pane,`dm:${a.profile.id}`);assert.equal(rows[0].data.kind,'dm');
+  assert.equal(rows.length,1);assert.equal(rows[0].title,'Alice');assert.equal(rows[0].body,'See you there');assert.equal(rows[0].data.pane,`dm:${a.profile.id}`);assert.equal(rows[0].data.kind,'dm');
   assert.ok(Date.parse(rows[0].send_after)<=Date.now()+1000);
   // Per-type setting and per-friend mute.
   await actor(db,B);await rpc(db,'cs_settings',['profile',{notification_preferences:{dm:false}}]);
