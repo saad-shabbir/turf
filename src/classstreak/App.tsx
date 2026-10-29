@@ -15,7 +15,7 @@ import { purge, read, write, recoverUnreadableStorage } from "../db/local";
 import { checkNativeEncryption } from "../db/storage-check";
 import { call, finishOnboarding, getSnapshot, resetEmail, saveSettings, signIn, signUp } from "./api";
 import { newDraft, safeMessage, type Draft, type Snapshot,type Place } from "./model";
-import { Button, Card, Input, Logo, Screen, Theme, themes, Txt } from "./ui";
+import { Button, Card, Input, Logo, Row, Screen, Theme, themes, Txt } from "./ui";
 import { Onboarding } from "./Onboarding";
 import { PlacesPicker } from "./PlacesPicker";
 import {Product} from "./Product";
@@ -46,6 +46,8 @@ import {syncLiveWorkout,registerWorkoutCategory,cancelWorkoutChecks,creditedEnd,
 import {registerPush,unregisterPush,releasePushToken} from './push';
 import {syncPlan} from './planSync';
 import {chooseAvatar,removeAvatar,clearPhotoCache} from './avatars';
+import {checkForAppUpdate,restartForUpdate} from './otaUpdates';
+import {showUpdateBanner} from './updateRules';
 
 async function saveLinkedPlace(place:Place){
  const s=await getSnapshot();const previous=s.places.find(p=>place.google_place_id?p.google_place_id===place.google_place_id:p.name===place.name&&Math.abs(p.lat-place.lat)<.00001&&Math.abs(p.lng-place.lng)<.00001);
@@ -80,6 +82,9 @@ export default function ClassStreakApp() {
   const [observedNow,setObservedNow]=useState(()=>Date.now());
   useEffect(()=>{const timer=setInterval(()=>{if(AppState.currentState==='active')setObservedNow(Date.now());},30000);return()=>clearInterval(timer);},[]);
   const [editingPlace,setEditingPlace]=useState<string|null>(null);
+  const [updateReady,setUpdateReady]=useState(false);
+  // Check for a new version on open and on every return to the app (throttled).
+  useEffect(()=>{const check=()=>{void checkForAppUpdate().then(ready=>{if(ready)setUpdateReady(true);});};check();const sub=AppState.addEventListener('change',state=>{if(state==='active')check();});return()=>sub.remove();},[]);
   const [authId,setAuthId]=useState<string|null>(null);const [contactMatches,setContactMatches]=useState<{id:string;first_name:string}[]>([]);
   const [studioQR,setStudioQR]=useState<{name:string;code:string}|null>(null);
   const authEpoch=useRef(0);
@@ -282,6 +287,7 @@ export default function ClassStreakApp() {
         setMessage("Local storage is ready. Sign in to load your synced account data. The old encrypted files have been kept.");
       })}])}/>}
     </Card>}
+    {showUpdateBanner({ready:updateReady,workoutRunning:!!activeWorkout,cameraOpen:pane.startsWith("post")})&&<Card style={{borderRadius:0,padding:10}}><Row style={{gap:10}}><Txt size={12} style={{flex:1}}>A new version of ClassStreak is ready</Txt><Button small title="Restart" onPress={()=>{if(!activeWorkout&&!pane.startsWith("post"))void restartForUpdate().catch(()=>setMessage("Couldn’t restart. The update applies next time you open ClassStreak."));}}/></Row></Card>}
     {!ready || !fontsLoaded ? <Screen><Logo /><Txt muted>Opening your streak…</Txt></Screen> : pane==="privacy"&&!snapshot?<Screen>{extra("privacy")}<Button title="Back" onPress={()=>setPane("home")}/></Screen>:mode !== "onboarding" ? <Screen><Logo /><Txt serif size={35}>{mode === "signin" ? "Welcome back." : mode === "forgot" ? "Forgot password?" : "Choose a new password."}</Txt>
       {mode !== "reset" && <Input label="Email" value={email} onChange={setEmail} keyboard="email-address" />}
       {mode !== "forgot" && <Input label="Password" value={password} onChange={setPassword} secure />}
