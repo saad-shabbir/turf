@@ -70,7 +70,7 @@ export function PhotoFlow({snapshot:s,activeWorkout,sessionId,verify=false,actio
    if(!target){await saveToPhotos(image);action('message',{text:'Saved to your Photos.'});onClose();return;}
    const synced=await queuePhoto(image,target,caption.trim(),{kind,share});await onSaved().catch(()=>{});
    if(mode==='verify'&&kind==='post'){action('workout_stop',{visit_id:target});onClose();return;}
-   action('message',{text:synced?(share?'Posted to your friends’ feeds.':'Saved privately to this workout.'):'Saved on this phone. It will upload when you’re back online.'});onClose();
+   action('message',{text:synced?(share?'Posted to your friends’ feeds.':'Saved privately to this workout.'):'Saved on this phone. It will upload when you’re back online.',tone:synced?'success':'info'});onClose();
   }catch(error){setNote(safeMessage(error));}finally{setBusy(false);}
  };
  const run=(fn:()=>Promise<void>)=>{setBusy(true);setNote('');void fn().catch(error=>setNote(safeMessage(error))).finally(()=>setBusy(false));};

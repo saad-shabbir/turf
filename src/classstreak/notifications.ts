@@ -10,7 +10,13 @@ import {loadWeeklyPlanning} from './planningStore';
 import {plannedReminders} from './planning';
 import {reconcilePlannedNotifications} from './planningNotificationSync';
 import {liveSnapshot} from './liveSnapshot';
-Notifications.setNotificationHandler({handleNotification:async()=>({shouldShowBanner:true,shouldShowList:true,shouldPlaySound:false,shouldSetBadge:false})});
+import {isUpdateNotification} from './updateFlow';
+// While the app is open, an update notification becomes the in-app Restart
+// banner instead of a system banner.
+Notifications.setNotificationHandler({handleNotification:async n=>{const update=isUpdateNotification(n.request.content.data);return {shouldShowBanner:!update,shouldShowList:!update,shouldPlaySound:false,shouldSetBadge:false};}});
+export function onUpdateNotificationReceived(listener:()=>void){
+ return Notifications.addNotificationReceivedListener(n=>{if(isUpdateNotification(n.request.content.data))listener();});
+}
 export async function enableNotifications(){return (await Notifications.requestPermissionsAsync()).granted;}
 export async function notifySession(ids:string[]){
  if(AppState.currentState==="active")return;
@@ -26,9 +32,12 @@ export async function testReminder(){
  if(!await enableNotifications())throw new Error("Enable notifications in iPhone Settings to see reminders.");
  await Notifications.scheduleNotificationAsync({content:{title:"ClassStreak",body:"Your next session counts. This is a test reminder.",data:{pane:"home"}},trigger:{type:Notifications.SchedulableTriggerInputTypes.TIME_INTERVAL,seconds:3}});
 }
+// Taps on any ClassStreak notification, including the one that launched the
+// app. An update notification opens as the pane "app-update".
 export function notificationResponse(handle:(pane:string,extra?:{action:string;visit_id?:string;from?:string})=>void){
- const open=(r:Notifications.NotificationResponse)=>{const data=r.notification.request.content.data;const pane=data?.pane;if(typeof pane==='string'){track('reminder_opened');handle(pane,{action:r.actionIdentifier,visit_id:typeof data?.visit_id==='string'?data.visit_id:undefined,from:typeof data?.from==='string'?data.from:undefined});}Notifications.clearLastNotificationResponse();};
- const subscription=Notifications.addNotificationResponseReceivedListener(open);const initial=Notifications.getLastNotificationResponse();if(initial)open(initial);return subscription;
+ const handled=new Set<string>();
+ const open=(r:Notifications.NotificationResponse)=>{const key=r.notification.request.identifier+':'+r.actionIdentifier+':'+r.notification.date;if(handled.has(key))return;handled.add(key);const data=r.notification.request.content.data;const pane=isUpdateNotification(data)?'app-update':data?.pane;if(typeof pane==='string'){track('reminder_opened');handle(pane,{action:r.actionIdentifier,visit_id:typeof data?.visit_id==='string'?data.visit_id:undefined,from:typeof data?.from==='string'?data.from:undefined});}Notifications.clearLastNotificationResponse();};
+ const subscription=Notifications.addNotificationResponseReceivedListener(open);void Notifications.getLastNotificationResponseAsync().then(initial=>{if(initial)open(initial);}).catch(()=>{});return subscription;
 }
 let reminderEpoch=0;
 let suspendedAuthEpoch:number|undefined;
