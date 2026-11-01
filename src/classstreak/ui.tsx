@@ -48,6 +48,7 @@ export function Icon({ name, size = 20, color }: { name: string; size?: number; 
     friends: "M8 10a3 3 0 1 0 0-6 3 3 0 0 0 0 6Zm9 1a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5ZM2 21v-3a6 6 0 0 1 12 0v3m1-7a5 5 0 0 1 7 4v3",
     person: "M12 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8ZM4 22a8 8 0 0 1 16 0",
     bell: "M5 16V10a7 7 0 0 1 14 0v6l2 3H3Zm5 6h4", plus: "M12 4v16M4 12h16", minus: "M4 12h16", x: "m6 6 12 12M6 18 18 6",
+    alert: "M12 8v5M12 16.5v.01M10.3 3.9 2.6 17.2A2 2 0 0 0 4.3 20h15.4a2 2 0 0 0 1.7-2.8L13.7 3.9a2 2 0 0 0-3.4 0Z", info: "M12 11v5M12 7.5v.01M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z",
     send: "M3 11 21 3l-8 18-2-8Z", download: "M12 3v12m-5-5 5 5 5-5M4 21h16", flip: "M4 8h13l-3-3M20 16H7l3 3", image: "M3 5h18v14H3ZM3 16l5-5 4 4 3-3 6 6",
     check: "m5 12 4 4L19 6", chevron: "m9 5 7 7-7 7", back: "m15 5-7 7 7 7",
     pin: "M19 10c0 6-7 12-7 12S5 16 5 10a7 7 0 0 1 14 0Zm-4 0a3 3 0 1 0-6 0 3 3 0 0 0 6 0",

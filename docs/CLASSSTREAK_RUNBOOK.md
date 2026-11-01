@@ -43,3 +43,15 @@ After downloading the successful native artifact, compile with `npx expo export:
 2. Deploy `send_push` with `--no-verify-jwt`. It only drains the queue and uses the built-in service key.
 3. Push goes live when: tokens appear in `classstreak.push_tokens` (the installed build has the push entitlement), the APNs key for `com.turf.privatealpha` is on Expo for `@saadpm1/turf`, and step 2 of the schedule file sets `push_config` and the 1-minute sender.
 
+## Announcing an update (migration 202610310020)
+After `eas update` publishes something people will notice, tell the phones on that runtime. Skip this for invisible fixes.
+1. Apply `supabase/migrations/202610310020_classstreak_update_push.sql` once, like the others.
+2. Use the runtime version that `eas update` printed (build 9: `7a5bdc82abc50e41ab72d3eb819bf4f042c65633`) and one line on what changed:
+   ```
+   jq -n --arg q "select classstreak.announce_update('7a5bdc82abc50e41ab72d3eb819bf4f042c65633','ClassStreak update','<one line on what changed>. Tap to update.')" '{query:$q}' \
+    | curl -sS -X POST https://api.supabase.com/v1/projects/qrehonivhqcgfrjcpzqk/database/query -H "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" -H 'Content-Type: application/json' --data @-
+   ```
+   It returns the number of pushes queued: one per phone on that runtime whose owner has "App updates" on (demo accounts never). Pushes for people in quiet hours wait until 7 am. Announcing again replaces pushes that haven't gone out yet. Pass `null` as the runtime to reach every phone.
+3. Phones register their runtime on their next app open after this update, so a phone that hasn't opened ClassStreak since doesn't match a runtime yet (it still gets the update on its next open).
+4. Tapping the push applies the update with a short "Updating ClassStreak…" screen, or says "You're on the latest version". During a workout or with the camera open it only downloads, and the Restart banner appears afterwards. With the app open, the push becomes the Restart banner.
+
